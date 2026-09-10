@@ -11,13 +11,37 @@
   let cachedProfile = null;
   let floatingHubEl = null;
 
-  // 1. Fetch user profile from background storage
+  // Helper to reliably access AtsAdapters across extension contexts
+  function getAtsAdapters() {
+    if (typeof window !== 'undefined' && window.AtsAdapters) return window.AtsAdapters;
+    if (typeof globalThis !== 'undefined' && globalThis.AtsAdapters) return globalThis.AtsAdapters;
+    if (typeof AtsAdapters !== 'undefined') return AtsAdapters;
+    return null;
+  }
+
+  // 1. Fetch user profile from background storage or direct local storage
   async function loadProfile() {
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      try {
+        const data = await chrome.storage.local.get(['applypilot_profile']);
+        if (data?.applypilot_profile) {
+          cachedProfile = data.applypilot_profile;
+          return cachedProfile;
+        }
+      } catch (e) {}
+    }
+
     return new Promise((resolve) => {
-      chrome.runtime.sendMessage({ action: "GET_PROFILE" }, (response) => {
-        cachedProfile = response?.profile || null;
+      try {
+        chrome.runtime.sendMessage({ action: "GET_PROFILE" }, (response) => {
+          if (response?.profile) {
+            cachedProfile = response.profile;
+          }
+          resolve(cachedProfile);
+        });
+      } catch (e) {
         resolve(cachedProfile);
-      });
+      }
     });
   }
 
@@ -98,15 +122,16 @@
     ));
     const matched = [];
     const unmatched = [];
+    const adapters = getAtsAdapters();
 
-    if (!cachedProfile || !window.AtsAdapters) {
+    if (!cachedProfile || !adapters) {
       return { matched, unmatched, total: candidates.length };
     }
 
     for (const el of candidates) {
       if (el.closest && el.closest('#applypilot-floating-hub, #applypilot-review-card, .ap-toast')) continue;
-      const descriptor = window.AtsAdapters.getElementDescriptor(el);
-      const matchResult = window.AtsAdapters.matchElement(descriptor, cachedProfile);
+      const descriptor = adapters.getElementDescriptor(el);
+      const matchResult = adapters.matchElement(descriptor, cachedProfile);
 
       if (matchResult.matched && matchResult.value) {
         matched.push({ element: el, descriptor, matchResult });
@@ -128,8 +153,8 @@
       try {
         const el = item.element;
         // Don't overwrite non-empty fields that already have valid user/workday values
-        const currentVal = el.value !== undefined ? String(el.value).trim() : "";
-        if (currentVal.length > 0 && el.type !== 'checkbox' && el.type !== 'radio') {
+        const currentVal = (el.value !== undefined ? String(el.value).trim() : "") || (el.tagName === 'BUTTON' ? el.innerText.trim() : "");
+        if (currentVal.length > 0 && el.type !== 'checkbox' && el.type !== 'radio' && el.tagName !== 'BUTTON') {
           continue;
         }
 
@@ -174,7 +199,9 @@
         e.stopPropagation();
 
         await loadProfile();
-        const descriptor = window.AtsAdapters.getElementDescriptor(ta);
+        const adapters = getAtsAdapters();
+        if (!adapters) return;
+        const descriptor = adapters.getElementDescriptor(ta);
         const questionText = descriptor.combinedLabels || descriptor.placeholder || descriptor.name || "Job Application Question";
 
         btn.classList.add('ap-loading');
@@ -443,17 +470,18 @@
 
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(async () => {
-        if (!window.AtsAdapters) return;
+        const adapters = getAtsAdapters();
+        if (!adapters) return;
         await loadProfile();
 
-        const descriptor = window.AtsAdapters.getElementDescriptor(el);
+        const descriptor = adapters.getElementDescriptor(el);
         const label = descriptor.combinedLabels || descriptor.placeholder || descriptor.name || descriptor.dataAutomationId;
         if (!label || label.length < 2) return;
 
         const cleanLabel = label.replace(/\*/g, '').replace(/\s+/g, ' ').trim();
 
         // Check if value is already identical in current profile
-        const match = window.AtsAdapters.matchElement(descriptor, cachedProfile);
+        const match = adapters.matchElement(descriptor, cachedProfile);
         if (match.matched && match.value === val) {
           return;
         }
@@ -493,6 +521,12 @@
   // 10. Scan & Capture All Non-Empty Page Fields (e.g. from Workday's Resume Parser)
   async function capturePageValues() {
     await loadProfile();
+    const adapters = getAtsAdapters();
+    if (!adapters) {
+      console.warn("[ApplyPilot] AtsAdapters not available for page capture.");
+      return { capturedCount: 0 };
+    }
+
     const candidates = Array.from(document.querySelectorAll(
       'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), select, textarea'
     ));
@@ -504,12 +538,12 @@
       const val = typeof rawVal === 'string' ? rawVal.trim() : rawVal;
       if (!val || val.length === 0) continue;
 
-      const descriptor = window.AtsAdapters.getElementDescriptor(el);
+      const descriptor = adapters.getElementDescriptor(el);
       const label = descriptor.combinedLabels || descriptor.placeholder || descriptor.name || descriptor.dataAutomationId;
       if (!label || label.length < 2) continue;
 
       const cleanLabel = label.replace(/\*/g, '').replace(/\s+/g, ' ').trim();
-      const match = window.AtsAdapters.matchElement(descriptor, cachedProfile);
+      const match = adapters.matchElement(descriptor, cachedProfile);
 
       if (!match.matched || match.value !== val) {
         chrome.runtime.sendMessage({

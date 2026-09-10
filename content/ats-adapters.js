@@ -1,26 +1,26 @@
 // ApplyPilot AI - ATS Adapters & Form Identification Rules
 // Highly tuned for Greenhouse, Lever, Workday, Ashby, and Generic Application Forms.
 
-const AtsAdapters = {
+var AtsAdapters = {
   // Common standard field dictionary with multi-signal matching
   FIELD_DEFINITIONS: [
     {
       key: "firstName",
       category: "personal",
       subKey: "firstName",
-      labels: ["first name", "given name", "forename", "first_name"],
+      labels: ["first name", "given name", "forename", "first_name", "given name(s)", "given names"],
       names: ["firstname", "first_name", "first-name", "givenname", "given-name"],
       autocomplete: ["given-name"],
-      workdayId: ["legalnamesection_firstname", "firstname"]
+      workdayId: ["legalnamesection_firstname", "firstname", "givenname"]
     },
     {
       key: "lastName",
       category: "personal",
       subKey: "lastName",
-      labels: ["last name", "surname", "family name", "last_name"],
+      labels: ["last name", "surname", "family name", "last_name", "family name(s)", "family names"],
       names: ["lastname", "last_name", "last-name", "familyname", "family-name"],
       autocomplete: ["family-name"],
-      workdayId: ["legalnamesection_lastname", "lastname"]
+      workdayId: ["legalnamesection_lastname", "lastname", "familyname"]
     },
     {
       key: "fullName",
@@ -352,7 +352,10 @@ const AtsAdapters = {
       for (const id of labelledBy.split(/\s+/)) {
         if (id) {
           const lbl = document.getElementById(id);
-          if (lbl && lbl.innerText) textSignals.push(lbl.innerText.trim());
+          if (lbl) {
+            const txt = (lbl.innerText || lbl.textContent || '').trim();
+            if (txt) textSignals.push(txt);
+          }
         }
       }
     }
@@ -360,28 +363,38 @@ const AtsAdapters = {
     // 2. Associated label via 'for' attribute
     if (el.id) {
       const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
-      if (label && label.innerText) textSignals.push(label.innerText.trim());
+      if (label) {
+        const txt = (label.innerText || label.textContent || '').trim();
+        if (txt) textSignals.push(txt);
+      }
     }
 
     // 3. Parent label if input is wrapped in <label>
     const parentLabel = el.closest('label');
-    if (parentLabel && parentLabel.innerText) {
-      textSignals.push(parentLabel.innerText.trim());
+    if (parentLabel) {
+      const txt = (parentLabel.innerText || parentLabel.textContent || '').trim();
+      if (txt) textSignals.push(txt);
     }
 
     // 4. Parent container heading or formfield (CRITICAL: check parentElement so el doesn't self-match)
     const container = el.parentElement?.closest('[data-automation-id*="formField"], [data-automation-id*="FormField"], [data-uxi-formfield="true"], .field, .form-group, .application-question, [class*="formField"], [class*="form-field"], [class*="formItem"], .css-1');
     if (container) {
       const heading = container.querySelector('label, .label, .field-label, legend, span[id*="label"], [data-automation-id*="label"], [class*="Label"], h4, h5');
-      if (heading && heading.innerText) textSignals.push(heading.innerText.trim());
+      if (heading) {
+        const txt = (heading.innerText || heading.textContent || '').trim();
+        if (txt) textSignals.push(txt);
+      }
     }
 
     // 5. Preceding sibling label or span
     let prev = el.previousElementSibling;
     while (prev) {
-      if (prev.matches && prev.matches('label, span, div, p') && prev.innerText && prev.innerText.trim().length > 0 && prev.innerText.trim().length < 80) {
-        textSignals.push(prev.innerText.trim());
-        break;
+      if (prev.matches && prev.matches('label, span, div, p')) {
+        const txt = (prev.innerText || prev.textContent || '').trim();
+        if (txt && txt.length > 0 && txt.length < 80) {
+          textSignals.push(txt);
+          break;
+        }
       }
       prev = prev.previousElementSibling;
     }
@@ -398,6 +411,8 @@ const AtsAdapters = {
     const placeholder = el.getAttribute('placeholder') || '';
     const autocomplete = el.getAttribute('autocomplete') || '';
     const dataAutomationId = el.getAttribute('data-automation-id') || el.getAttribute('data-uxi-element-id') || '';
+    const containerAutomationId = container?.getAttribute('data-automation-id') || container?.getAttribute('data-uxi-element-id') || '';
+    const fullAutomationId = `${dataAutomationId} ${containerAutomationId}`.trim().toLowerCase();
 
     return {
       element: el,
@@ -408,7 +423,7 @@ const AtsAdapters = {
       placeholder: placeholder.toLowerCase(),
       ariaLabel: ariaLabel.toLowerCase(),
       autocomplete: autocomplete.toLowerCase(),
-      dataAutomationId: dataAutomationId.toLowerCase(),
+      dataAutomationId: fullAutomationId,
       combinedLabels: textSignals.join(' ').toLowerCase()
     };
   },
@@ -539,6 +554,13 @@ const AtsAdapters = {
   }
 };
 
+// Export for Chrome Extension content scripts (window / globalThis) and Node test runner (module.exports)
+if (typeof window !== 'undefined') {
+  window.AtsAdapters = AtsAdapters;
+}
+if (typeof globalThis !== 'undefined') {
+  globalThis.AtsAdapters = AtsAdapters;
+}
 if (typeof module !== 'undefined') {
   module.exports = { AtsAdapters };
 }
