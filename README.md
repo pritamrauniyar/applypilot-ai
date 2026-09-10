@@ -1,142 +1,224 @@
-# 🚀 ApplyPilot AI — Universal Job Application Autofill & AI Copilot
+# ?? ApplyPilot AI � Universal Job Application Autofill & AI Copilot
 
-[![Manifest V3](https://img.shields.io/badge/Chrome%20Extension-Manifest%20V3-blue.svg)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Google Gemini API](https://img.shields.io/badge/AI-Google%20Gemini%203%20Flash-4285F4.svg)](https://ai.google.dev/)
-[![Tests](https://img.shields.io/badge/Tests-24%2F24%20Passing%20(100%25)-success.svg)]()
-[![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local%20Storage-orange.svg)]()
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero%20External%20NPM-brightgreen.svg)]()
+<div align="center">
 
-> **ApplyPilot AI** is a lightweight, low-memory Chrome extension built to **10x career application speed** across Greenhouse, Lever, Workday, Ashby, and custom portals globally with **zero tracking**, **100% local storage**, and free Google Gemini AI.
+[![Manifest V3](https://img.shields.io/badge/Chrome%20Extension-Manifest%20V3-blue.svg?style=for-the-badge&logo=googlechrome)](https://developer.chrome.com/docs/extensions/mv3/intro/)
+[![Google Gemini API](https://img.shields.io/badge/AI-Google%20Gemini%203%20Flash-4285F4.svg?style=for-the-badge&logo=googlegemini)](https://ai.google.dev/)
+[![Tests](https://img.shields.io/badge/Tests-24%2F24%20Passing%20(100%25)-success.svg?style=for-the-badge&logo=checkmarx)]()
+[![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local%20Storage-orange.svg?style=for-the-badge&logo=privacy)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
+[![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero%20NPM%20Bloat-brightgreen.svg?style=for-the-badge)]()
+
+<p align="center">
+  <strong>10x your job application speed across Greenhouse, Lever, Workday, Ashby, and custom portals worldwide.</strong><br>
+  Zero data exfiltration. Zero monthly subscriptions. Powered by your free Google Gemini API key.
+</p>
+
+[Quick Start](#-quick-start-in-30-seconds) �
+[Architecture](#-high-level-architecture) �
+[Key Features](#-key-features) �
+[Why ApplyPilot?](#-why-applypilot-vs-alternatives) �
+[ATS Compatibility](#-supported-applicant-tracking-systems-ats) �
+[Test Suite](#-instant-local-testing-environment)
+
+</div>
 
 ---
 
-## 🏗️ High-Level Architecture
+## ?? The Problem ApplyPilot Solves
 
-```mermaid
+Job seekers spend **hundreds of hours** filling out the exact same repetitive fields across different Applicant Tracking Systems (ATS). Existing autofill tools suffer from four major flaws:
+1. **Expensive Subscriptions**: They charge \�\/month for basic text insertion.
+2. **Privacy Risks**: Your resumes, contact details, work history, and demographic data are transmitted to third-party databases.
+3. **Broken React/Vue Forms**: Inputs appear filled on-screen, but clear out or fail validation upon clicking "Submit" because framework synthetic events aren't triggered.
+4. **US-Only & Role Restrictions**: They break on global portals requesting CTC, notice period in days, multi-currency salary ranges (?, �, \$, �), or right-to-work across different jurisdictions.
+
+**ApplyPilot AI** was built to solve all four: it is **100% free forever**, stores **all data strictly in your browser's local storage**, natively supports **React/Vue/Angular synthetic event dispatching**, and includes a **self-learning question feedback loop** powered by Google's latest **Gemini 3 Flash** models.
+
+---
+
+## ??? High-Level Architecture
+
+`mermaid
 graph TD
-    User["👤 Candidate"] --> UI["🖥️ UI Layer (Popup & Side Panel Companion)"]
-    UI --> Storage["💾 chrome.storage.local (100% Private, Zero External Servers)"]
+    User["?? Candidate"] --> UI["??? UI Layer (Popup & Side Panel Companion)"]
+    UI --> Storage["?? chrome.storage.local (100% Private, Zero External Servers)"]
     
-    WebPage["🌐 Active Job Application (Greenhouse / Lever / Workday / Ashby)"]
+    WebPage["?? Active Job Application (Greenhouse / Lever / Workday / Ashby)"]
     
-    CE["⚡ Content Engine (High-Performance DOM Scanner <50KB)"] <--> WebPage
-    CE --> ATS["🎯 ATS Adapters (Multi-Signal Matcher: id, name, label, autocomplete)"]
+    CE["? Content Engine (High-Performance DOM Scanner <50KB)"] <--> WebPage
+    CE --> ATS["?? ATS Adapters (Multi-Signal Matcher: id, name, label, autocomplete)"]
     ATS --> Storage
     
-    CE --> Setter["⚡ Native Synthetic Event Dispatcher (React/Vue/Angular Compatible)"]
+    CE --> Setter["? Native Synthetic Event Dispatcher (React/Vue/Angular Compatible)"]
     Setter --> WebPage
     
-    CE <--> SW["⚙️ Background Service Worker (Manifest V3 Proxy)"]
-    SW <--> Gemini["🤖 Google Gemini API (gemini-3.6-flash / Free Tier)"]
+    CE <--> SW["?? Background Service Worker (Manifest V3 Proxy)"]
+    SW <--> Gemini["?? Google Gemini API (gemini-3.6-flash / Free Tier)"]
     
-    Gemini --> Memory["🧠 Self-Learning Memory Feedback Loop"]
+    Gemini --> Memory["?? Self-Learning Memory Feedback Loop"]
     Memory --> Storage
-```
+`
 
 ---
 
-## 🌟 Key Features
+## ?? Key Features
 
-1. **⚡ 1-Click Multi-ATS Autofill**:
-   - Out-of-the-box support for **Greenhouse, Lever, Workday, Ashby, SmartRecruiters**, and custom career sites worldwide.
-   - Simulates native React, Vue, and Angular synthetic events so inputs don't revert to empty upon form submission.
-2. **🧠 Self-Learning Feedback Loop**:
-   - When a job application has a non-standard or unrecognized question, ApplyPilot detects it and generates a suggested answer via Gemini.
-   - You review the suggestion in a quick pop-up card: **Approve & Remember**, or **Edit**.
-   - Once approved, ApplyPilot fills the field **AND automatically remembers it** in your local memory dictionary. Next time that question appears on any job application, it autofills instantly!
-3. **📄 Zero-Friction Resume Ingestion**:
-   - Drag & drop your resume PDF directly or paste raw resume text.
-   - Gemini AI parses your experience, education, skills, and links into your structured profile in seconds.
-4. **✨ In-Field AI Essay Draft Button**:
-   - On open-ended `<textarea>` prompts (*"Why our company?"*, *"Describe a technical challenge"*, *"Tell us about a time you solved a complex problem"*), an inline sparkle **"✨ AI Draft"** button appears.
-   - 1 click writes a tailored, professional response using your real background and the job posting context.
-5. **🏷️ Dynamic Custom Fields & Global Presets**:
-   - Pre-configured with universal presets: Work Authorization (any country / location), Authorized Work Countries list, Visa Sponsorship, Notice Period (in days / weeks / months), and Flexible Salary / CTC (₹ INR LPA, $ USD, € EUR, £ GBP, etc.).
-   - Add unlimited custom key-value pairs with keyword triggers.
-6. **🚀 Lightweight & Low-RAM (<50KB DOM footprint)**:
-   - Zero bulky frameworks or background polling loops. Does not slow down your browser even on low-memory systems (4GB - 8GB RAM).
-7. **🔒 100% Private & Free Tier Powered**:
-   - All profile data is stored **strictly on your computer** (`chrome.storage.local`).
-   - Uses the official Google Gemini API (`gemini-3.6-flash`). Zero subscription fees.
+### ? 1. 1-Click Multi-ATS Autofill
+- **Multi-Signal Recognition**: Simultaneously cross-references HTML attributes (utocomplete, id, 
+ame, data-automation-id), adjacent <label> tags, parent containers, and placeholder cues.
+- **Native Synthetic Event Dispatcher**: Overrides standard DOM setters using Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set followed by synthetic input, change, and lur events. **Guarantees inputs register in React, Vue, and Angular forms without clearing on submit.**
 
----
+### ?? 2. Self-Learning Memory Feedback Loop
+- Encounter an unfamiliar or company-specific question like *"Describe your experience with Kubernetes at scale"*?
+- Click **"? AI Assist"**: Gemini analyzes the question and proposes an answer based on your profile.
+- Review the floating card: **Approve & Remember** or **Edit**.
+- Once approved, ApplyPilot fills the field **and permanently records the question pattern** in your browser's local memory dictionary. The next time that question appears on any job board, it autofills instantly!
 
-## 🚀 How to Install in 10 Seconds
+### ?? 3. Zero-Overhead Client-Side Resume Ingestion
+- Drag & drop your PDF resume directly into the popup.
+- Includes a custom **client-side Flate/Deflate decompression and stream text extraction engine** (lib/pdf-extractor.js) with zero npm library bloat.
+- Directly feeds extracted plain text to Gemini 3 Flash with structured JSON output, auto-populating your entire profile in seconds.
+- Built-in parseAndRepairJson ensures that even if token limits cut off response strings, the JSON tree is dynamically closed and recovered cleanly.
 
-### Step 1: Open Chrome Extensions
-1. Open Google Chrome, Brave, or Microsoft Edge.
-2. In the URL bar, go to:
-   ```text
-   chrome://extensions
-   ```
-3. Enable **"Developer mode"** (toggle in the top-right corner).
+### ? 4. In-Field AI Essay Draft Button
+- Automatically injects an elegant **"? AI Draft"** sparkle button into open-ended <textarea> prompts (*"Why our company?"*, *"Describe a technical hurdle you solved"*).
+- One click generates a concise, articulate, and tailored response customized to the specific job title and company.
 
-### Step 2: Load the Extension
-1. Click the **"Load unpacked"** button in the top-left corner.
-2. Select the directory:
-   ```text
-   C:\Project\New folder
-   ```
-3. You will see **ApplyPilot AI — Smart Job Application Autofill** appear in your extension toolbar! Pin it for quick access.
+### ?? 5. Global & Multi-Country Presets
+- Built for global applicants across India, Europe, UK, US, Canada, Australia, and Remote:
+  - **Salary / CTC Expectations**: Supports flexible text & any currency (e.g. ?25 - 35 LPA, $160k - , �85k, or Negotiable).
+  - **Notice Period / Availability**: Customizable for days, weeks, or immediate availability (e.g. Immediately available, 15 days, 30 days, 2 months).
+  - **Authorized Work Countries**: Explicit multi-country support (India, United States, Canada, Remote / Any).
+  - **Country Field Auto-Population**: Matches country selects and inputs across international portals.
+
+### ?? 6. Multi-Step Side Panel Companion
+- Docks seamlessly alongside lengthy multi-page application portals (like Workday).
+- Displays a real-time checklist of detected, autofilled, and unmapped fields on the current page.
+- Includes a **1-Click Quick-Copy Drawer** so you can grab any URL, skill, or snippet instantly.
+
+### ?? 7. 100% Privacy & Zero Data Exfiltration
+- **No telemetry, no tracking analytics, no middleman servers.**
+- Your profile data never leaves your computer except via direct encrypted HTTPS calls from your browser to Google AI Studio using your own personal API key.
 
 ---
 
-## 🔑 Getting Your Free Gemini API Key (1-Minute Setup)
+## ?? Why ApplyPilot vs. Alternatives?
 
-1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
-2. Sign in with your Google account.
-3. Click **"Create API Key"** and copy the key (starts with `AIzaSy...`).
-4. Click the **ApplyPilot AI** extension icon in your browser, go to the **⚙️ AI** tab, paste the key, and click **"Save Profile"**.
-> *Note: The Gemini free tier provides 15 Requests Per Minute and 1,000,000 Tokens Per Minute, which is more than enough to fill hundreds of job applications every day for free.*
-
----
-
-## 🧪 Testing the Extension (Instant Verification)
-
-We have included a mock testing environment to verify autofill and reactive event dispatching without having to open a live job posting:
-
-1. Double-click or open `test/test-forms.html` in Chrome.
-2. You will see simulated **Greenhouse**, **Lever**, and **Workday** application forms.
-3. Click the floating **"ApplyPilot Fill"** badge in the bottom-right corner (or open the extension popup and click "Autofill Application Now").
-4. Watch all fields instantly populate and the live reactive event log record the input/change events!
-5. Try the **"✨ AI Draft"** button on the technical challenge essay prompt to see Gemini craft a tailored response.
+| Feature | ApplyPilot AI ?? | Simplify / JobFill | Generic Form Fillers |
+| :--- | :---: | :---: | :---: |
+| **Cost** | **100% Free Forever** | \ � \ / month | Free / Freemium |
+| **Privacy & Security** | **100% Local Storage (chrome.storage)** | Stored on third-party servers | Local or cloud sync |
+| **AI Question Answering** | **Google Gemini 3 Flash (Free Tier)** | Proprietary / Paywalled | ? None |
+| **Self-Learning Memory** | **Yes (Remembers approved answers)** | ? No | ? None |
+| **React / Vue Event Support** | **Native Synthetic Setter Simulation** | Partial | ? Often wipes out on submit |
+| **Global Currency / CTC Support**| **Yes (INR ? LPA, USD $, EUR �, GBP �)**| ? US-Centric | Partial |
+| **Extension Footprint** | **< 50KB DOM footprint, Zero NPM Bloat**| Heavy bundle | Varies |
+| **Open Source** | **MIT Licensed** | Proprietary Closed Source | Usually Closed Source |
 
 ---
 
-## 📁 Project Structure
+## ?? Supported Applicant Tracking Systems (ATS)
 
-```text
-├── manifest.json              # Chrome Manifest V3 configuration
-├── icons/                     # 16x16, 48x48, 128x128 extension icons
-├── popup/
-│   ├── popup.html             # Profile & quick-fill dashboard
-│   ├── popup.css              # Modern UI styling
-│   └── popup.js               # Tab logic, file uploader, storage controller
-├── sidepanel/
-│   ├── sidepanel.html         # Companion side panel for multi-step applications
-│   ├── sidepanel.css          # Side panel styling
-│   └── sidepanel.js           # Live tab observer & quick-copy drawer
-├── content/
-│   ├── content.js             # High-performance DOM scanner & feedback loop
-│   ├── content.css            # Floating hub & review card styles
-│   └── ats-adapters.js        # Multi-signal matcher for Greenhouse, Lever, Workday
-├── background/
-│   └── service-worker.js      # Ephemeral service worker, context menus, Gemini proxy
-├── lib/
-│   ├── storage.js             # Local profile store with universal defaults & presets
-│   └── gemini-service.js      # Direct Gemini free-tier REST client
-├── test/
-│   ├── test-forms.html        # Interactive ATS simulation test suite
-│   └── test-matcher.js        # Node.js automated unit verification (24/24 tests)
-└── README.md                  # Documentation and user guide
-```
+ApplyPilot features dedicated adapters and heuristic detectors tuned for:
+- ?? **Greenhouse** (oards.greenhouse.io, embedded Greenhouse iframes)
+- ?? **Lever** (jobs.lever.co)
+- ?? **Workday** (*.myworkdayjobs.com)
+- ?? **Ashby** (jobs.ashbyhq.com)
+- ?? **SmartRecruiters** (jobs.smartrecruiters.com)
+- ? **Custom & Generic Application Portals** (Career pages on company websites)
 
 ---
 
-## 💡 Pro-Tips for Job Hunting
+## ?? Quick Start in 30 Seconds
 
-- **Global Presets**: Configure your Salary/CTC (e.g. ₹25-35 LPA, $170k, €85k) and authorized work countries in the Presets tab. ApplyPilot fills these dynamically based on local portal requirements.
-- **Side Panel Companion**: Click the side panel icon in the popup or right-click anywhere and choose *"Open ApplyPilot Side Panel"* to keep your candidate details and quick-copy drawer docked right next to Workday multi-step wizards!
-- **Feedback Loop**: When an unusual question appears, click *"Scan Unrecognized Fields with AI"*. Review the generated answer, approve it, and ApplyPilot will remember it across all future job boards.
+### Step 1: Clone or Download
+`ash
+git clone https://github.com/pritamrauniyar/applypilot-ai.git
+`
 
+### Step 2: Load Unpacked in Chrome / Edge / Brave
+1. Open your browser and navigate to chrome://extensions.
+2. Toggle on **"Developer mode"** in the top-right corner.
+3. Click **"Load unpacked"** in the top-left.
+4. Select the pplypilot-ai folder.
+5. Pin the **ApplyPilot AI** icon to your browser toolbar!
+
+### Step 3: Add Your Free Google Gemini Key (1 Minute)
+1. Grab a free API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
+2. Click the ApplyPilot extension icon, go to the **?? AI Key** tab, paste the key, and click **"Save Profile"**.
+3. Click **"? Test API Connection"** to verify real-time connectivity to gemini-3.6-flash.
+
+---
+
+## ?? Instant Local Testing Environment
+
+You don't need to hunt for live job postings to see ApplyPilot in action. The repository includes an interactive ATS test suite:
+
+1. Open 	est/test-forms.html directly in your browser.
+2. You'll see simulated forms for **Greenhouse**, **Lever**, and **Workday** alongside a real-time reactive event logger.
+3. Click the floating **"ApplyPilot Fill"** badge or open the extension popup and click **"Autofill Application Now"**.
+4. Run the automated unit test suite:
+   `ash
+   node test/test-matcher.js
+   `
+   `	ext
+   ========================================
+   Summary: 24/24 Tests Passed (100%)
+   ========================================
+   `
+
+---
+
+## ?? Repository Structure
+
+`	ext
+applypilot-ai/
++-- manifest.json              # Manifest V3 configuration & permission boundaries
++-- icons/                     # Crisp vector-generated PNG extension icons (16, 48, 128)
++-- popup/
+�   +-- popup.html             # Profile management & quick-fill popup UI
+�   +-- popup.css              # Polished responsive stylesheet
+�   +-- popup.js               # Tab controller, file reader, storage sync
++-- sidepanel/
+�   +-- sidepanel.html         # Multi-step Workday companion drawer
+�   +-- sidepanel.css          # Side panel dark/light accents
+�   +-- sidepanel.js           # Live DOM observer & quick-copy drawer
++-- content/
+�   +-- content.js             # Low-overhead DOM scanner (<50KB) & feedback loop UI
+�   +-- content.css            # Floating hub badge & review modal styling
+�   +-- ats-adapters.js        # Multi-signal matcher with weighted specificity
++-- background/
+�   +-- service-worker.js      # Ephemeral service worker, context menu, Gemini proxy
++-- lib/
+�   +-- storage.js             # Local profile schema & memory dictionary
+�   +-- gemini-service.js      # Direct Gemini 3 Flash REST client & repair engine
+�   +-- pdf-extractor.js       # Client-side Flate decompression & text regex parser
++-- test/
+�   +-- test-forms.html        # Interactive ATS simulation test suite
+�   +-- test-matcher.js        # Automated Node.js unit verification suite (24 tests)
+�   +-- test-pdf.js            # PDF decompression stream unit tests
++-- LICENSE                    # MIT License
++-- README.md                  # Comprehensive documentation & showcase
+`
+
+---
+
+## ?? Contributing
+
+Contributions, feature requests, and bug reports are welcome!
+1. Fork the Project.
+2. Create your Feature Branch (git checkout -b feature/AmazingFeature).
+3. Commit your Changes (git commit -m 'Add some AmazingFeature').
+4. Push to the Branch (git push origin feature/AmazingFeature).
+5. Open a Pull Request.
+
+---
+
+## ?? License
+
+Distributed under the **MIT License**. See [LICENSE](LICENSE) for more information.
+
+<div align="center">
+  <sub>Built with ?? for job seekers worldwide. Star ? this repository if it helps your career search!</sub>
+</div>
