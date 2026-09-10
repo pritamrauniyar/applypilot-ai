@@ -104,6 +104,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function refreshProfile() {
     activeProfile = await StorageService.getProfile();
     populateForm(activeProfile);
+    renderExperienceList(activeProfile.experience?.items || []);
     renderCustomFields(activeProfile.customFields || []);
     renderLearnedMemory(activeProfile.learnedMemory || []);
     updateSummary(activeProfile);
@@ -123,6 +124,90 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sumAuth = document.getElementById('sum-auth');
     if (sumAuth) sumAuth.textContent = `${p.presets?.workAuthorization || "Authorized"} (Sponsorship: ${p.presets?.requireSponsorship || "No"})`;
   }
+
+  // Render Work Experience History Cards in Sequence
+  function renderExperienceList(items) {
+    const container = document.getElementById('experience-list');
+    const countBadge = document.getElementById('experience-count');
+    if (!container) return;
+
+    if (countBadge) countBadge.textContent = items.length;
+    container.innerHTML = '';
+
+    if (!items.length) {
+      container.innerHTML = '<div class="ap-text-muted" style="padding: 6px 0; font-size: 11.5px;">No experience roles added yet. Click below or parse a resume to load your complete career history.</div>';
+      return;
+    }
+
+    items.forEach((exp, idx) => {
+      const card = document.createElement('div');
+      card.className = 'ap-exp-card';
+      card.dataset.id = exp.id || `exp-${idx}`;
+      card.style.cssText = "background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; position: relative;";
+
+      card.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <strong style="font-size: 12px; color: var(--primary);">#${idx + 1} ${escapeHtml(exp.title || "Role")} ${exp.company ? `@ ${escapeHtml(exp.company)}` : ""}</strong>
+          <button type="button" class="ap-field-del-btn ap-del-exp" title="Delete Role" style="position: static; font-size: 14px; line-height: 1;">&times;</button>
+        </div>
+        <div class="ap-grid-2" style="margin-bottom: 6px;">
+          <div class="ap-input-group" style="margin-bottom: 0;">
+            <label style="font-size: 11px;">Job Title</label>
+            <input type="text" class="ap-exp-title" value="${escapeHtml(exp.title || "")}" placeholder="e.g. Software Engineer II" style="padding: 6px 8px; font-size: 12px;">
+          </div>
+          <div class="ap-input-group" style="margin-bottom: 0;">
+            <label style="font-size: 11px;">Company</label>
+            <input type="text" class="ap-exp-company" value="${escapeHtml(exp.company || "")}" placeholder="e.g. Uber" style="padding: 6px 8px; font-size: 12px;">
+          </div>
+        </div>
+        <div class="ap-grid-2" style="margin-bottom: 6px;">
+          <div class="ap-input-group" style="margin-bottom: 0;">
+            <label style="font-size: 11px;">Location</label>
+            <input type="text" class="ap-exp-location" value="${escapeHtml(exp.location || "")}" placeholder="e.g. San Francisco, CA" style="padding: 6px 8px; font-size: 12px;">
+          </div>
+          <div class="ap-input-group" style="margin-bottom: 0;">
+            <label style="font-size: 11px;">Dates (From - To)</label>
+            <div style="display: flex; gap: 4px;">
+              <input type="text" class="ap-exp-start" value="${escapeHtml(exp.startDate || "")}" placeholder="From (e.g. 2022-08)" style="flex: 1; padding: 6px 6px; font-size: 11px;">
+              <input type="text" class="ap-exp-end" value="${escapeHtml(exp.endDate || "")}" placeholder="To (e.g. Present)" style="flex: 1; padding: 6px 6px; font-size: 11px;">
+            </div>
+          </div>
+        </div>
+        <div style="margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+          <input type="checkbox" class="ap-exp-current" id="chk-curr-${idx}" ${exp.isCurrent ? 'checked' : ''} style="width: auto; margin: 0;">
+          <label for="chk-curr-${idx}" style="font-size: 11px; margin: 0; cursor: pointer;">I currently work here</label>
+        </div>
+        <div class="ap-input-group" style="margin-bottom: 0;">
+          <label style="font-size: 11px;">Role Description & Key Achievements</label>
+          <textarea class="ap-exp-desc" rows="2" placeholder="Key responsibilities, systems scaled, impact..." style="padding: 6px 8px; font-size: 11.5px;">${escapeHtml(exp.description || "")}</textarea>
+        </div>
+      `;
+
+      card.querySelector('.ap-del-exp').addEventListener('click', () => {
+        activeProfile.experience.items.splice(idx, 1);
+        renderExperienceList(activeProfile.experience.items);
+      });
+
+      container.appendChild(card);
+    });
+  }
+
+  // Add Experience Button
+  document.getElementById('btn-add-experience')?.addEventListener('click', () => {
+    if (!activeProfile.experience) activeProfile.experience = {};
+    if (!Array.isArray(activeProfile.experience.items)) activeProfile.experience.items = [];
+    activeProfile.experience.items.push({
+      id: `exp-${Date.now()}`,
+      title: "",
+      company: "",
+      location: "",
+      startDate: "",
+      endDate: "",
+      isCurrent: activeProfile.experience.items.length === 0,
+      description: ""
+    });
+    renderExperienceList(activeProfile.experience.items);
+  });
 
   function populateForm(p) {
     // Personal
@@ -187,6 +272,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function saveForm() {
     if (!activeProfile) return;
 
+    // Collect experience items in sequence
+    const expCards = document.querySelectorAll('#experience-list .ap-exp-card');
+    const items = [];
+    expCards.forEach((card, idx) => {
+      items.push({
+        id: card.dataset.id || `exp-${Date.now()}-${idx}`,
+        title: card.querySelector('.ap-exp-title')?.value.trim() || "",
+        company: card.querySelector('.ap-exp-company')?.value.trim() || "",
+        location: card.querySelector('.ap-exp-location')?.value.trim() || "",
+        startDate: card.querySelector('.ap-exp-start')?.value.trim() || "",
+        endDate: card.querySelector('.ap-exp-end')?.value.trim() || "",
+        isCurrent: card.querySelector('.ap-exp-current')?.checked || false,
+        description: card.querySelector('.ap-exp-desc')?.value.trim() || ""
+      });
+    });
+
     activeProfile.personal = {
       ...activeProfile.personal,
       firstName: document.getElementById('prof-first-name').value.trim(),
@@ -210,8 +311,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     activeProfile.experience = {
       ...activeProfile.experience,
-      currentCompany: document.getElementById('prof-company').value.trim(),
-      currentTitle: document.getElementById('prof-title').value.trim(),
+      items: items.length > 0 ? items : (activeProfile.experience?.items || []),
+      currentCompany: items[0]?.company || document.getElementById('prof-company').value.trim(),
+      currentTitle: items[0]?.title || document.getElementById('prof-title').value.trim(),
       yearsOfExperience: document.getElementById('prof-yoe').value.trim(),
       skills: document.getElementById('prof-skills').value.trim()
     };
@@ -254,6 +356,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 2000);
 
     updateSummary(activeProfile);
+    renderExperienceList(activeProfile.experience?.items || []);
   }
 
   document.getElementById('btn-save-profile').addEventListener('click', saveForm);
@@ -565,9 +668,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if (parsed.experience) {
       activeProfile.experience = { ...activeProfile.experience, ...parsed.experience };
+      if (Array.isArray(parsed.experience.items)) {
+        activeProfile.experience.items = parsed.experience.items;
+      }
     }
     if (parsed.education) {
       activeProfile.education = { ...activeProfile.education, ...parsed.education };
+      if (Array.isArray(parsed.education.items)) {
+        activeProfile.education.items = parsed.education.items;
+      }
     }
     if (parsed.suggestedCustomFields && Array.isArray(parsed.suggestedCustomFields)) {
       activeProfile.customFields = activeProfile.customFields || [];
@@ -585,6 +694,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     StorageService.saveProfile(activeProfile);
     populateForm(activeProfile);
+    renderExperienceList(activeProfile.experience?.items || []);
     renderCustomFields(activeProfile.customFields);
     updateSummary(activeProfile);
   }

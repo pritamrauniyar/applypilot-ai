@@ -112,6 +112,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       { title: "Target Salary", value: p.presets?.salaryExpectations }
     ];
 
+    // Add sequential work experiences
+    (p.experience?.items || []).forEach((exp, idx) => {
+      if (exp.company || exp.title) {
+        items.push({
+          title: `💼 Role #${idx + 1}: ${exp.title || "Position"} @ ${exp.company || "Company"}`,
+          value: `${exp.title || ""} at ${exp.company || ""}${exp.startDate || exp.endDate ? ` (${exp.startDate || ""} - ${exp.endDate || ""})` : ""}${exp.location ? ` • ${exp.location}` : ""}\n${exp.description || ""}`.trim()
+        });
+      }
+    });
+
     // Add custom fields
     (p.customFields || []).forEach(cf => {
       items.push({ title: cf.label, value: cf.value });

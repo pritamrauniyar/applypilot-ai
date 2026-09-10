@@ -138,6 +138,86 @@ if (repaired && repaired.personal && repaired.personal.firstName === "Pritam" &&
   console.error("❌ FAILED: JSON Repair failed to salvage candidate data!");
 }
 
+// --- 5. Testing Multi-Experience Sequential Matching ---
+console.log("\n--- 5. Testing Multi-Experience Sequential Matching ---");
+const multiExpProfile = {
+  ...DEFAULT_PROFILE,
+  experience: {
+    ...DEFAULT_PROFILE.experience,
+    items: [
+      {
+        id: "exp-1",
+        title: "Senior Frontend Engineer",
+        company: "Meta",
+        location: "Menlo Park, CA",
+        startDate: "2023-01",
+        endDate: "Present",
+        isCurrent: true,
+        description: "Leading React 18 core design system"
+      },
+      {
+        id: "exp-2",
+        title: "Software Engineer II",
+        company: "Uber",
+        location: "San Francisco, CA",
+        startDate: "2021-06",
+        endDate: "2022-12",
+        isCurrent: false,
+        description: "Built microservices in Go and Kafka"
+      },
+      {
+        id: "exp-3",
+        title: "Associate Software Engineer",
+        company: "StartUp Inc",
+        location: "New York, NY",
+        startDate: "2020-07",
+        endDate: "2021-05",
+        isCurrent: false,
+        description: "Developed RESTful APIs and full-stack web features"
+      }
+    ]
+  }
+};
+
+const jobDesc = mockDescriptor({ dataAutomationId: 'jobTitle', label: 'Job Title*' });
+const compDesc = mockDescriptor({ dataAutomationId: 'company', label: 'Company*' });
+const locDesc = mockDescriptor({ dataAutomationId: 'location', label: 'Location' });
+const fromDesc = mockDescriptor({ dataAutomationId: 'startDate', label: 'From' });
+const toDesc = mockDescriptor({ dataAutomationId: 'endDate', label: 'To' });
+
+// Role 1 (Index 0)
+const m0_job = AtsAdapters.matchElement(jobDesc, multiExpProfile, 0);
+const m0_comp = AtsAdapters.matchElement(compDesc, multiExpProfile, 0);
+total += 2;
+if (m0_job.value === "Senior Frontend Engineer" && m0_comp.value === "Meta") {
+  console.log(`✓ [PASS] Multi-Exp Role #1 -> Matched: ${m0_job.value} at ${m0_comp.value}`);
+  passed += 2;
+} else {
+  console.error(`❌ FAILED: Multi-Exp Role #1 -> Got: ${m0_job.value} at ${m0_comp.value}`);
+}
+
+// Role 2 (Index 1)
+const m1_job = AtsAdapters.matchElement(jobDesc, multiExpProfile, 1);
+const m1_comp = AtsAdapters.matchElement(compDesc, multiExpProfile, 1);
+total += 2;
+if (m1_job.value === "Software Engineer II" && m1_comp.value === "Uber") {
+  console.log(`✓ [PASS] Multi-Exp Role #2 -> Matched: ${m1_job.value} at ${m1_comp.value}`);
+  passed += 2;
+} else {
+  console.error(`❌ FAILED: Multi-Exp Role #2 -> Got: ${m1_job.value} at ${m1_comp.value}`);
+}
+
+// Role 3 (Index 2)
+const m2_job = AtsAdapters.matchElement(jobDesc, multiExpProfile, 2);
+const m2_comp = AtsAdapters.matchElement(compDesc, multiExpProfile, 2);
+total += 2;
+if (m2_job.value === "Associate Software Engineer" && m2_comp.value === "StartUp Inc") {
+  console.log(`✓ [PASS] Multi-Exp Role #3 -> Matched: ${m2_job.value} at ${m2_comp.value}`);
+  passed += 2;
+} else {
+  console.error(`❌ FAILED: Multi-Exp Role #3 -> Got: ${m2_job.value} at ${m2_comp.value}`);
+}
+
 console.log(`\n========================================`);
 console.log(`Summary: ${passed}/${total} Tests Passed (${Math.round(passed/total * 100)}%)`);
 console.log(`========================================\n`);

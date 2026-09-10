@@ -167,6 +167,24 @@ var AtsAdapters = {
       workdayId: ["roledescription", "description", "jobdescription"]
     },
     {
+      key: "startDate",
+      category: "experience",
+      subKey: "startDate",
+      labels: ["from", "start date", "from date", "starting date", "commenced"],
+      names: ["start_date", "from_date", "from", "startdate"],
+      autocomplete: [],
+      workdayId: ["startdate", "fromdate", "from"]
+    },
+    {
+      key: "endDate",
+      category: "experience",
+      subKey: "endDate",
+      labels: ["to", "end date", "to date", "ending date"],
+      names: ["end_date", "to_date", "to", "enddate"],
+      autocomplete: [],
+      workdayId: ["enddate", "todate", "to"]
+    },
+    {
       key: "skills",
       category: "experience",
       subKey: "skills",
@@ -429,7 +447,7 @@ var AtsAdapters = {
   },
 
   // Match an element against standard fields, custom fields, and learned memory
-  matchElement(descriptor, profile) {
+  matchElement(descriptor, profile, sectionIndex = 0) {
     const combined = `${descriptor.combinedLabels} ${descriptor.name} ${descriptor.id} ${descriptor.placeholder} ${descriptor.ariaLabel} ${descriptor.dataAutomationId}`;
 
     // 1. Check Learned Memory from AI Feedback Loop first (user approved previously)
@@ -475,7 +493,7 @@ var AtsAdapters = {
     for (const def of this.FIELD_DEFINITIONS) {
       // Check autocomplete match (highest accuracy)
       if (descriptor.autocomplete && def.autocomplete.includes(descriptor.autocomplete)) {
-        const val = this.getProfileValue(profile, def.category, def.subKey);
+        const val = this.getProfileValue(profile, def.category, def.subKey, sectionIndex);
         if (val) return { matched: true, source: "standard", def, value: val, confidence: 1.0 };
       }
 
@@ -483,7 +501,7 @@ var AtsAdapters = {
       if (descriptor.dataAutomationId) {
         for (const wid of def.workdayId) {
           if (descriptor.dataAutomationId === wid || descriptor.dataAutomationId.includes(wid)) {
-            const val = this.getProfileValue(profile, def.category, def.subKey);
+            const val = this.getProfileValue(profile, def.category, def.subKey, sectionIndex);
             if (val) return { matched: true, source: "standard", def, value: val, confidence: 0.95 };
           }
         }
@@ -492,7 +510,7 @@ var AtsAdapters = {
       // Check exact name / ID match
       for (const n of def.names) {
         if (descriptor.name === n || descriptor.id === n) {
-          const val = this.getProfileValue(profile, def.category, def.subKey);
+          const val = this.getProfileValue(profile, def.category, def.subKey, sectionIndex);
           if (val) return { matched: true, source: "standard", def, value: val, confidence: 0.95 };
         }
       }
@@ -511,7 +529,7 @@ var AtsAdapters = {
         const regex = new RegExp(isShort ? `\\b${lbl}\\b` : lbl, 'i');
 
         if (regex.test(descriptor.combinedLabels) || regex.test(descriptor.ariaLabel) || regex.test(descriptor.placeholder)) {
-          const val = this.getProfileValue(profile, def.category, def.subKey);
+          const val = this.getProfileValue(profile, def.category, def.subKey, sectionIndex);
           if (val) {
             matches.push({
               matched: true,
@@ -535,17 +553,38 @@ var AtsAdapters = {
     return { matched: false, descriptor };
   },
 
-  // Helper to extract value safely from nested profile
-  getProfileValue(profile, category, subKey) {
+  // Helper to extract value safely from nested profile, supporting sequential items
+  getProfileValue(profile, category, subKey, index = 0) {
     if (!profile) return "";
     if (category === "personal") return profile.personal?.[subKey] || "";
     if (category === "links") return profile.links?.[subKey] || "";
     if (category === "experience") {
-      if (subKey === "location") return profile.experience?.location || profile.personal?.location || profile.personal?.city || "";
-      if (subKey === "isCurrent") return true;
+      const items = profile.experience?.items || [];
+      if (items.length > index) {
+        const item = items[index];
+        if (subKey === "currentCompany" || subKey === "company") return item.company || profile.experience?.currentCompany || "";
+        if (subKey === "currentTitle" || subKey === "title") return item.title || profile.experience?.currentTitle || "";
+        if (subKey === "location" || subKey === "jobLocation") return item.location || profile.experience?.location || profile.personal?.location || "";
+        if (subKey === "isCurrent" || subKey === "currentlyWorkHere") return item.isCurrent !== undefined ? item.isCurrent : (index === 0);
+        if (subKey === "roleDescription" || subKey === "description") return item.description || profile.experience?.headline || "";
+        if (subKey === "startDate" || subKey === "fromDate") return item.startDate || "";
+        if (subKey === "endDate" || subKey === "toDate") return item.endDate || (item.isCurrent ? "Present" : "");
+      }
+      if (subKey === "location" || subKey === "jobLocation") return profile.experience?.location || profile.personal?.location || profile.personal?.city || "";
+      if (subKey === "isCurrent" || subKey === "currentlyWorkHere") return true;
+      if (subKey === "roleDescription" || subKey === "description") return profile.experience?.headline || "";
       return profile.experience?.[subKey] || "";
     }
     if (category === "education") {
+      const items = profile.education?.items || [];
+      if (items.length > index) {
+        const item = items[index];
+        if (subKey === "school") return item.school || profile.education?.school || "";
+        if (subKey === "degree") return item.degree || profile.education?.degree || "";
+        if (subKey === "fieldOfStudy") return item.fieldOfStudy || profile.education?.fieldOfStudy || "";
+        if (subKey === "graduationYear") return item.graduationYear || profile.education?.graduationYear || "";
+        if (subKey === "gpa") return item.gpa || profile.education?.gpa || "";
+      }
       if (subKey === "graduationYear") return profile.education?.graduationYear || "";
       return profile.education?.[subKey] || "";
     }

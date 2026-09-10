@@ -128,13 +128,27 @@
       return { matched, unmatched, total: candidates.length };
     }
 
+    // Track sequential occurrences for experience and education fields
+    const occurrenceCounts = {};
+
     for (const el of candidates) {
       if (el.closest && el.closest('#applypilot-floating-hub, #applypilot-review-card, .ap-toast')) continue;
       const descriptor = adapters.getElementDescriptor(el);
-      const matchResult = adapters.matchElement(descriptor, cachedProfile);
+
+      // Probe first to see if this matches an experience or education field
+      const probeMatch = adapters.matchElement(descriptor, cachedProfile, 0);
+      let sectionIndex = 0;
+
+      if (probeMatch.matched && probeMatch.def && (probeMatch.def.category === 'experience' || probeMatch.def.category === 'education')) {
+        const key = probeMatch.def.key;
+        sectionIndex = occurrenceCounts[key] || 0;
+        occurrenceCounts[key] = sectionIndex + 1;
+      }
+
+      const matchResult = adapters.matchElement(descriptor, cachedProfile, sectionIndex);
 
       if (matchResult.matched && matchResult.value) {
-        matched.push({ element: el, descriptor, matchResult });
+        matched.push({ element: el, descriptor, matchResult, sectionIndex });
       } else {
         unmatched.push({ element: el, descriptor });
       }
@@ -532,6 +546,19 @@
     ));
 
     let count = 0;
+    const expTitles = [];
+    const expCompanies = [];
+    const expLocations = [];
+    const expFroms = [];
+    const expTos = [];
+    const expDescs = [];
+
+    const eduSchools = [];
+    const eduDegrees = [];
+    const eduFields = [];
+    const eduGrads = [];
+    const eduGpas = [];
+
     for (const el of candidates) {
       if (el.closest && el.closest('#applypilot-floating-hub, #applypilot-review-card, .ap-toast')) continue;
       const rawVal = el.type === 'checkbox' ? (el.checked ? "Yes" : "No") : el.value;
@@ -545,6 +572,21 @@
       const cleanLabel = label.replace(/\*/g, '').replace(/\s+/g, ' ').trim();
       const match = adapters.matchElement(descriptor, cachedProfile);
 
+      // Track structured experience fields
+      if (match.matched && match.def) {
+        if (match.def.key === "currentTitle") expTitles.push(val);
+        else if (match.def.key === "currentCompany") expCompanies.push(val);
+        else if (match.def.key === "jobLocation") expLocations.push(val);
+        else if (match.def.key === "startDate") expFroms.push(val);
+        else if (match.def.key === "endDate") expTos.push(val);
+        else if (match.def.key === "roleDescription") expDescs.push(val);
+        else if (match.def.key === "school") eduSchools.push(val);
+        else if (match.def.key === "degree") eduDegrees.push(val);
+        else if (match.def.key === "fieldOfStudy") eduFields.push(val);
+        else if (match.def.key === "graduationYear") eduGrads.push(val);
+        else if (match.def.key === "gpa") eduGpas.push(val);
+      }
+
       if (!match.matched || match.value !== val) {
         chrome.runtime.sendMessage({
           action: "SAVE_LEARNED_FIELD",
@@ -556,6 +598,56 @@
           }
         });
         count++;
+      }
+    }
+
+    // Save multi-experience items if detected on page
+    if (expTitles.length > 0 || expCompanies.length > 0) {
+      const maxExp = Math.max(expTitles.length, expCompanies.length);
+      const newExpItems = [];
+      for (let i = 0; i < maxExp; i++) {
+        newExpItems.push({
+          id: `exp-page-${Date.now()}-${i}`,
+          title: expTitles[i] || "",
+          company: expCompanies[i] || "",
+          location: expLocations[i] || "",
+          startDate: expFroms[i] || "",
+          endDate: expTos[i] || "",
+          isCurrent: expTos[i] ? expTos[i].toLowerCase().includes("present") : (i === 0),
+          description: expDescs[i] || ""
+        });
+      }
+      if (newExpItems.length > 0) {
+        cachedProfile.experience = cachedProfile.experience || {};
+        cachedProfile.experience.items = newExpItems;
+        if (newExpItems[0].title) cachedProfile.experience.currentTitle = newExpItems[0].title;
+        if (newExpItems[0].company) cachedProfile.experience.currentCompany = newExpItems[0].company;
+        chrome.runtime.sendMessage({ action: "SAVE_PROFILE", profile: cachedProfile });
+        count += newExpItems.length;
+      }
+    }
+
+    // Save multi-education items if detected on page
+    if (eduSchools.length > 0 || eduDegrees.length > 0) {
+      const maxEdu = Math.max(eduSchools.length, eduDegrees.length);
+      const newEduItems = [];
+      for (let i = 0; i < maxEdu; i++) {
+        newEduItems.push({
+          id: `edu-page-${Date.now()}-${i}`,
+          school: eduSchools[i] || "",
+          degree: eduDegrees[i] || "",
+          fieldOfStudy: eduFields[i] || "",
+          graduationYear: eduGrads[i] || "",
+          gpa: eduGpas[i] || ""
+        });
+      }
+      if (newEduItems.length > 0) {
+        cachedProfile.education = cachedProfile.education || {};
+        cachedProfile.education.items = newEduItems;
+        if (newEduItems[0].school) cachedProfile.education.school = newEduItems[0].school;
+        if (newEduItems[0].degree) cachedProfile.education.degree = newEduItems[0].degree;
+        chrome.runtime.sendMessage({ action: "SAVE_PROFILE", profile: cachedProfile });
+        count += newEduItems.length;
       }
     }
 

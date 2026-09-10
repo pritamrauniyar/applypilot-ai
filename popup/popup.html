@@ -184,6 +184,23 @@
           <input type="text" id="prof-school" placeholder="e.g. University / College name">
         </div>
       </div>
+
+      <!-- Work Experience History (All Roles in Sequence) -->
+      <div class="ap-card">
+        <div class="ap-card-title-row">
+          <h4>💼 Work Experience History (All Roles)</h4>
+          <span class="ap-badge" id="experience-count">0</span>
+        </div>
+        <p class="ap-text-muted" style="margin-bottom: 10px; font-size: 11.5px;">
+          All work experiences from your resume in sequence (most recent first) for sequential Workday autofill.
+        </p>
+        <div id="experience-list" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px;">
+          <!-- Dynamically populated -->
+        </div>
+        <button type="button" class="ap-btn ap-btn-outline" id="btn-add-experience" style="width: 100%; font-size: 12px; padding: 6px;">
+          ➕ Add Work Experience Role
+        </button>
+      </div>
     </div>
 
     <!-- Tab 3: Presets (Standard Application Questions) -->
