@@ -82,6 +82,14 @@ assertMatch('Workday Email', mockDescriptor({ dataAutomationId: 'email' }), 'ema
 assertMatch('Workday Phone', mockDescriptor({ dataAutomationId: 'phone-number' }), 'phone', '234');
 assertMatch('Workday City', mockDescriptor({ dataAutomationId: 'addressSection_city' }), 'city', 'San Francisco');
 assertMatch('Workday Country', mockDescriptor({ dataAutomationId: 'addressSection_country' }), 'country', 'United States');
+assertMatch('Workday Job Title', mockDescriptor({ dataAutomationId: 'jobTitle', label: 'Job Title*' }), 'currentTitle', 'Software Engineer');
+assertMatch('Workday Company', mockDescriptor({ dataAutomationId: 'company', label: 'Company*' }), 'currentCompany', 'Uber');
+assertMatch('Workday Location', mockDescriptor({ dataAutomationId: 'location', label: 'Location' }), 'jobLocation', 'San Francisco');
+assertMatch('Workday School', mockDescriptor({ dataAutomationId: 'school', label: 'School or University*' }), 'school', 'University of California');
+assertMatch('Workday Degree', mockDescriptor({ dataAutomationId: 'degree', label: 'Degree*' }), 'degree', 'Bachelor');
+assertMatch('Workday Field of Study', mockDescriptor({ dataAutomationId: 'fieldOfStudy', label: 'Field of Study' }), 'fieldOfStudy', 'Computer Science');
+assertMatch('Workday GPA', mockDescriptor({ dataAutomationId: 'gpa', label: 'Overall Result (GPA)' }), 'gpa', '3.8');
+assertMatch('Workday Skills', mockDescriptor({ dataAutomationId: 'skills', label: 'Type to Add Skills' }), 'skills', 'Go');
 
 // Global Fields & Currency/CTC Test
 assertMatch('Global Field: Expected CTC', mockDescriptor({ label: 'Expected CTC / Salary' }), 'salaryExpectations', 'Negotiable');

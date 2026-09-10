@@ -64,6 +64,9 @@
       return;
     }
 
+    // Focus first to activate framework listener
+    element.dispatchEvent(new Event('focus', { bubbles: true }));
+
     // Standard text, textarea, email, tel, url
     const valueSetter = Object.getOwnPropertyDescriptor(element, 'value')?.set;
     const prototype = Object.getPrototypeOf(element);
@@ -90,7 +93,9 @@
 
   // 3. Scan DOM Form Fields
   function scanFormFields() {
-    const candidates = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), select, textarea'));
+    const candidates = Array.from(document.querySelectorAll(
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), select, textarea, button[aria-haspopup="listbox"], [role="combobox"]'
+    ));
     const matched = [];
     const unmatched = [];
 
@@ -99,7 +104,7 @@
     }
 
     for (const el of candidates) {
-      // Skip fields already populated unless empty or checkbox
+      if (el.closest && el.closest('#applypilot-floating-hub, #applypilot-review-card, .ap-toast')) continue;
       const descriptor = window.AtsAdapters.getElementDescriptor(el);
       const matchResult = window.AtsAdapters.matchElement(descriptor, cachedProfile);
 
@@ -121,7 +126,14 @@
 
     for (const item of matched) {
       try {
-        setNativeValue(item.element, item.matchResult.value);
+        const el = item.element;
+        // Don't overwrite non-empty fields that already have valid user/workday values
+        const currentVal = el.value !== undefined ? String(el.value).trim() : "";
+        if (currentVal.length > 0 && el.type !== 'checkbox' && el.type !== 'radio') {
+          continue;
+        }
+
+        setNativeValue(el, item.matchResult.value);
         filledCount++;
       } catch (err) {
         console.warn("[ApplyPilot] Error setting field value:", err);
@@ -134,6 +146,7 @@
     // Update floating badge if present
     updateFloatingBadge(filledCount);
 
+    showToast(`✓ Autofilled ${filledCount} fields!`);
     return { filledCount, totalMatched: matched.length };
   }
 
@@ -312,6 +325,12 @@
             </svg>
             <span>Autofill All Detected Fields</span>
           </button>
+          <button class="ap-action-btn" id="ap-btn-capture-fields">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+            </svg>
+            <span>📥 Capture & Learn Page Fields</span>
+          </button>
           <button class="ap-action-btn" id="ap-btn-ai-scan">
             <svg viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
@@ -359,6 +378,11 @@
       await autofillForm();
     });
 
+    floatingHubEl.querySelector('#ap-btn-capture-fields').addEventListener('click', async () => {
+      menu.classList.remove('ap-visible');
+      await capturePageValues();
+    });
+
     floatingHubEl.querySelector('#ap-btn-ai-scan').addEventListener('click', async () => {
       menu.classList.remove('ap-visible');
       await suggestNextUnrecognizedField();
@@ -377,6 +401,22 @@
     }
   }
 
+  function showToast(msg) {
+    let toast = document.getElementById('applypilot-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'applypilot-toast';
+      toast.className = 'ap-toast';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.classList.add('ap-toast-visible');
+    clearTimeout(toast._timeout);
+    toast._timeout = setTimeout(() => {
+      toast.classList.remove('ap-toast-visible');
+    }, 2600);
+  }
+
   function escapeHtml(str) {
     if (!str) return '';
     return String(str)
@@ -387,11 +427,135 @@
       .replace(/'/g, '&#039;');
   }
 
-  // 9. Runtime Message Listener
+  // 9. Automatically Learn and Save Any Field When the User Types or Changes It
+  function attachFieldCaptureListeners() {
+    let debounceTimer = null;
+
+    const handleFieldChange = (e) => {
+      const el = e.target;
+      if (!el || !el.matches || !el.matches('input, select, textarea')) return;
+      if (el.type === 'password' || el.type === 'hidden' || el.type === 'submit' || el.type === 'button') return;
+      if (el.closest && el.closest('#applypilot-floating-hub, #applypilot-review-card, .ap-toast')) return;
+
+      const rawVal = el.type === 'checkbox' ? (el.checked ? "Yes" : "No") : el.value;
+      const val = typeof rawVal === 'string' ? rawVal.trim() : rawVal;
+      if (!val || val.length === 0) return;
+
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
+        if (!window.AtsAdapters) return;
+        await loadProfile();
+
+        const descriptor = window.AtsAdapters.getElementDescriptor(el);
+        const label = descriptor.combinedLabels || descriptor.placeholder || descriptor.name || descriptor.dataAutomationId;
+        if (!label || label.length < 2) return;
+
+        const cleanLabel = label.replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+
+        // Check if value is already identical in current profile
+        const match = window.AtsAdapters.matchElement(descriptor, cachedProfile);
+        if (match.matched && match.value === val) {
+          return;
+        }
+
+        // Save into learned memory in background
+        chrome.runtime.sendMessage({
+          action: "SAVE_LEARNED_FIELD",
+          fieldData: {
+            fieldLabel: cleanLabel,
+            answer: val,
+            fieldType: descriptor.tag,
+            keywords: [
+              cleanLabel.toLowerCase(),
+              descriptor.name,
+              descriptor.id,
+              descriptor.dataAutomationId
+            ].filter(Boolean)
+          }
+        }, (res) => {
+          if (res && res.success) {
+            if (cachedProfile) {
+              cachedProfile.learnedMemory = cachedProfile.learnedMemory || [];
+              const idx = cachedProfile.learnedMemory.findIndex(m => m.fieldLabel.toLowerCase() === cleanLabel.toLowerCase());
+              if (idx >= 0) cachedProfile.learnedMemory[idx] = res.item;
+              else cachedProfile.learnedMemory.unshift(res.item);
+            }
+            showToast(`✓ Remembered: "${cleanLabel.slice(0, 24)}"`);
+          }
+        });
+      }, 600);
+    };
+
+    document.addEventListener('change', handleFieldChange, true);
+    document.addEventListener('blur', handleFieldChange, true);
+  }
+
+  // 10. Scan & Capture All Non-Empty Page Fields (e.g. from Workday's Resume Parser)
+  async function capturePageValues() {
+    await loadProfile();
+    const candidates = Array.from(document.querySelectorAll(
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), select, textarea'
+    ));
+
+    let count = 0;
+    for (const el of candidates) {
+      if (el.closest && el.closest('#applypilot-floating-hub, #applypilot-review-card, .ap-toast')) continue;
+      const rawVal = el.type === 'checkbox' ? (el.checked ? "Yes" : "No") : el.value;
+      const val = typeof rawVal === 'string' ? rawVal.trim() : rawVal;
+      if (!val || val.length === 0) continue;
+
+      const descriptor = window.AtsAdapters.getElementDescriptor(el);
+      const label = descriptor.combinedLabels || descriptor.placeholder || descriptor.name || descriptor.dataAutomationId;
+      if (!label || label.length < 2) continue;
+
+      const cleanLabel = label.replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+      const match = window.AtsAdapters.matchElement(descriptor, cachedProfile);
+
+      if (!match.matched || match.value !== val) {
+        chrome.runtime.sendMessage({
+          action: "SAVE_LEARNED_FIELD",
+          fieldData: {
+            fieldLabel: cleanLabel,
+            answer: val,
+            fieldType: descriptor.tag,
+            keywords: [cleanLabel.toLowerCase(), descriptor.name, descriptor.id, descriptor.dataAutomationId].filter(Boolean)
+          }
+        });
+        count++;
+      }
+    }
+
+    if (count > 0) {
+      showToast(`✓ Captured & remembered ${count} fields from page!`);
+      await loadProfile();
+    } else {
+      showToast(`All fields on this page are already in memory.`);
+    }
+
+    return { capturedCount: count };
+  }
+
+  // 11. Observe dynamic SPA steps (Workday steps 1 -> 2 -> 3)
+  function observeDynamicForms() {
+    let timer = null;
+    const observer = new MutationObserver(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        attachInFieldAiButtons();
+      }, 400);
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // 12. Runtime Message Listener
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
       if (request.action === "AUTOFILL") {
         const res = await autofillForm();
+        sendResponse({ success: true, ...res });
+      } else if (request.action === "CAPTURE_PAGE_FIELDS") {
+        const res = await capturePageValues();
         sendResponse({ success: true, ...res });
       } else if (request.action === "SCAN_FIELDS") {
         await loadProfile();
@@ -410,12 +574,14 @@
     return true; // Keep channel open for async response
   });
 
-  // 10. Lightweight initialization on page load (idle)
+  // 13. Initialization
   loadProfile().then((profile) => {
     if (profile?.settings?.showFloatingBadge !== false) {
       createFloatingHub();
     }
     attachInFieldAiButtons();
+    attachFieldCaptureListeners();
+    observeDynamicForms();
   });
 
 })();

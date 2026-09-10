@@ -271,9 +271,58 @@
             <input type="text" data-automation-id="addressSection_postalCode">
           </div>
         </div>
+
+        <h3 style="margin-top: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">Work Experience</h3>
+        <div class="grid-2" data-automation-id="workExperienceSection">
+          <div class="form-group">
+            <label>Job Title <span style="color:red">*</span></label>
+            <input type="text" data-automation-id="jobTitle" required>
+          </div>
+          <div class="form-group">
+            <label>Company <span style="color:red">*</span></label>
+            <input type="text" data-automation-id="company" required>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Location</label>
+            <input type="text" data-automation-id="location">
+          </div>
+          <div class="form-group">
+            <label>I currently work here</label>
+            <input type="checkbox" data-automation-id="currentlyWorkHere" style="width: auto; margin-top: 10px;">
+          </div>
+        </div>
         <div class="form-group" style="position: relative;">
-          <label>Additional Candidate Notes / Cover Letter</label>
-          <textarea data-automation-id="coverLetter" rows="3"></textarea>
+          <label>Role Description</label>
+          <textarea data-automation-id="description" rows="3"></textarea>
+        </div>
+
+        <h3 style="margin-top: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">Education</h3>
+        <div class="grid-2" data-automation-id="educationSection">
+          <div class="form-group">
+            <label>School or University <span style="color:red">*</span></label>
+            <input type="text" data-automation-id="school" required>
+          </div>
+          <div class="form-group">
+            <label>Degree <span style="color:red">*</span></label>
+            <input type="text" data-automation-id="degree" required>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Field of Study</label>
+            <input type="text" data-automation-id="fieldOfStudy">
+          </div>
+          <div class="form-group">
+            <label>Overall Result (GPA)</label>
+            <input type="text" data-automation-id="gpa">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Skills / Technologies</label>
+          <input type="text" data-automation-id="skills" placeholder="Type to add skills">
         </div>
       </form>
     </div>

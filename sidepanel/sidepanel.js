@@ -68,6 +68,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  // Capture & Learn Page Fields button
+  const captureBtn = document.getElementById('sp-capture-btn');
+  if (captureBtn) {
+    captureBtn.addEventListener('click', async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return;
+      captureBtn.textContent = "Saving...";
+      chrome.tabs.sendMessage(tab.id, { action: "CAPTURE_PAGE_FIELDS" }, async (res) => {
+        captureBtn.textContent = "📥 Learn Page";
+        if (res && res.capturedCount !== undefined) {
+          await loadData();
+          checkActiveTab();
+        }
+      });
+    });
+  }
+
   // AI Unmatched
   document.getElementById('sp-scan-ai-btn').addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

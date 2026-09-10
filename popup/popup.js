@@ -396,6 +396,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.close(); // Close popup so user sees in-page card
   });
 
+  // Capture & Remember Page Details Button
+  const captureBtn = document.getElementById('btn-capture-page');
+  if (captureBtn) {
+    captureBtn.addEventListener('click', async () => {
+      if (!currentTab?.id) return;
+      captureBtn.textContent = "Capturing...";
+      chrome.tabs.sendMessage(currentTab.id, { action: "CAPTURE_PAGE_FIELDS" }, async (res) => {
+        captureBtn.textContent = "📥 Capture & Remember Page Details";
+        if (res && res.capturedCount !== undefined) {
+          alert(`ApplyPilot AI: Successfully captured & saved ${res.capturedCount} fields into your memory!`);
+          await refreshProfile();
+          inspectActiveTab();
+        } else {
+          alert("ApplyPilot AI: All current details on this page are already recorded.");
+        }
+      });
+    });
+  }
+
   // 8. Resume Ingestion (File Drop & Text Paste)
   const dropzone = document.getElementById('resume-dropzone');
   const fileInput = document.getElementById('resume-file-input');

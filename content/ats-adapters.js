@@ -125,19 +125,55 @@ const AtsAdapters = {
       key: "currentCompany",
       category: "experience",
       subKey: "currentCompany",
-      labels: ["current company", "most recent company", "company", "current employer", "organization"],
-      names: ["org", "company", "current_company", "employer"],
+      labels: ["company", "current company", "most recent company", "current employer", "organization", "company name"],
+      names: ["company", "org", "current_company", "employer", "company_name"],
       autocomplete: ["organization"],
-      workdayId: ["currentcompany", "employer"]
+      workdayId: ["company", "currentcompany", "employer", "organization"]
     },
     {
       key: "currentTitle",
       category: "experience",
       subKey: "currentTitle",
-      labels: ["current title", "current job title", "title", "most recent role"],
-      names: ["title", "current_title", "job_title"],
+      labels: ["job title", "current title", "title", "current job title", "most recent role", "position", "role"],
+      names: ["job_title", "title", "current_title", "jobtitle", "position", "role"],
       autocomplete: ["organization-title"],
-      workdayId: ["jobtitle", "title"]
+      workdayId: ["jobtitle", "title", "position"]
+    },
+    {
+      key: "jobLocation",
+      category: "experience",
+      subKey: "location",
+      labels: ["location", "job location", "company location", "office location"],
+      names: ["job_location", "company_location", "location"],
+      autocomplete: [],
+      workdayId: ["location", "joblocation"]
+    },
+    {
+      key: "currentlyWorkHere",
+      category: "experience",
+      subKey: "isCurrent",
+      labels: ["i currently work here", "current employer", "current job", "present"],
+      names: ["currently_work_here", "is_current", "currentlyworkhere"],
+      autocomplete: [],
+      workdayId: ["currentlyworkhere", "iscurrent"]
+    },
+    {
+      key: "roleDescription",
+      category: "experience",
+      subKey: "headline",
+      labels: ["role description", "job description", "responsibilities", "description", "summary of duties"],
+      names: ["role_description", "job_description", "description", "responsibilities"],
+      autocomplete: [],
+      workdayId: ["roledescription", "description", "jobdescription"]
+    },
+    {
+      key: "skills",
+      category: "experience",
+      subKey: "skills",
+      labels: ["skills", "type to add skills", "key skills", "technical skills"],
+      names: ["skills", "skill", "technologies"],
+      autocomplete: [],
+      workdayId: ["skills", "skillsearch", "skillssection"]
     },
     {
       key: "yearsOfExperience",
@@ -258,6 +294,51 @@ const AtsAdapters = {
       names: ["disability", "disability_status"],
       autocomplete: [],
       workdayId: ["disability"]
+    },
+    {
+      key: "school",
+      category: "education",
+      subKey: "school",
+      labels: ["school or university", "school", "university", "college", "institution", "school name", "educational institution"],
+      names: ["school", "university", "college", "institution", "school_name"],
+      autocomplete: ["school"],
+      workdayId: ["school", "university", "schoolsearch", "schoolname", "college"]
+    },
+    {
+      key: "degree",
+      category: "education",
+      subKey: "degree",
+      labels: ["degree", "degree level", "degree*", "level of education", "type of degree"],
+      names: ["degree", "degree_level", "education_level"],
+      autocomplete: [],
+      workdayId: ["degree", "degreelevel", "educationdegree"]
+    },
+    {
+      key: "fieldOfStudy",
+      category: "education",
+      subKey: "fieldOfStudy",
+      labels: ["field of study", "major", "specialization", "area of study", "department", "discipline"],
+      names: ["field_of_study", "major", "fieldofstudy", "specialization"],
+      autocomplete: [],
+      workdayId: ["fieldofstudy", "major", "studyfield"]
+    },
+    {
+      key: "gpa",
+      category: "education",
+      subKey: "gpa",
+      labels: ["overall result (gpa)", "overall result", "gpa", "grade point average", "cumulative gpa", "cgpa", "grade"],
+      names: ["gpa", "overall_result", "cgpa", "grade"],
+      autocomplete: [],
+      workdayId: ["gpa", "overallresult", "grade"]
+    },
+    {
+      key: "graduationYear",
+      category: "education",
+      subKey: "graduationYear",
+      labels: ["to (actual or expected)", "graduation date", "graduation year", "end date", "to"],
+      names: ["graduation_year", "graduation_date", "end_date", "to"],
+      autocomplete: [],
+      workdayId: ["enddate", "todate", "graduationyear"]
     }
   ],
 
@@ -265,32 +346,58 @@ const AtsAdapters = {
   getElementDescriptor(el) {
     const textSignals = [];
 
-    // 1. Associated label via 'for' attribute
+    // 1. Aria-labelledby (Workday's primary accessible pattern)
+    const labelledBy = el.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      for (const id of labelledBy.split(/\s+/)) {
+        if (id) {
+          const lbl = document.getElementById(id);
+          if (lbl && lbl.innerText) textSignals.push(lbl.innerText.trim());
+        }
+      }
+    }
+
+    // 2. Associated label via 'for' attribute
     if (el.id) {
       const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (label && label.innerText) textSignals.push(label.innerText.trim());
     }
 
-    // 2. Parent label if input is wrapped
+    // 3. Parent label if input is wrapped in <label>
     const parentLabel = el.closest('label');
     if (parentLabel && parentLabel.innerText) {
       textSignals.push(parentLabel.innerText.trim());
     }
 
-    // 3. Preceding sibling or parent container heading
-    const container = el.closest('.field, .form-group, .application-question, [data-automation-id], .css-1, .form-field');
+    // 4. Parent container heading or formfield (CRITICAL: check parentElement so el doesn't self-match)
+    const container = el.parentElement?.closest('[data-automation-id*="formField"], [data-automation-id*="FormField"], [data-uxi-formfield="true"], .field, .form-group, .application-question, [class*="formField"], [class*="form-field"], [class*="formItem"], .css-1');
     if (container) {
-      const heading = container.querySelector('label, .label, .field-label, legend, span, h4, h5');
+      const heading = container.querySelector('label, .label, .field-label, legend, span[id*="label"], [data-automation-id*="label"], [class*="Label"], h4, h5');
       if (heading && heading.innerText) textSignals.push(heading.innerText.trim());
     }
 
-    // 4. Element attributes
+    // 5. Preceding sibling label or span
+    let prev = el.previousElementSibling;
+    while (prev) {
+      if (prev.matches && prev.matches('label, span, div, p') && prev.innerText && prev.innerText.trim().length > 0 && prev.innerText.trim().length < 80) {
+        textSignals.push(prev.innerText.trim());
+        break;
+      }
+      prev = prev.previousElementSibling;
+    }
+
+    // 6. Aria-label / Title
+    const ariaLabel = el.getAttribute('aria-label') || '';
+    if (ariaLabel) textSignals.push(ariaLabel.trim());
+    const title = el.getAttribute('title') || '';
+    if (title) textSignals.push(title.trim());
+
+    // 7. Element attributes
     const name = el.getAttribute('name') || '';
     const id = el.getAttribute('id') || '';
     const placeholder = el.getAttribute('placeholder') || '';
-    const ariaLabel = el.getAttribute('aria-label') || '';
     const autocomplete = el.getAttribute('autocomplete') || '';
-    const dataAutomationId = el.getAttribute('data-automation-id') || '';
+    const dataAutomationId = el.getAttribute('data-automation-id') || el.getAttribute('data-uxi-element-id') || '';
 
     return {
       element: el,
@@ -418,8 +525,15 @@ const AtsAdapters = {
     if (!profile) return "";
     if (category === "personal") return profile.personal?.[subKey] || "";
     if (category === "links") return profile.links?.[subKey] || "";
-    if (category === "experience") return profile.experience?.[subKey] || "";
-    if (category === "education") return profile.education?.[subKey] || "";
+    if (category === "experience") {
+      if (subKey === "location") return profile.experience?.location || profile.personal?.location || profile.personal?.city || "";
+      if (subKey === "isCurrent") return true;
+      return profile.experience?.[subKey] || "";
+    }
+    if (category === "education") {
+      if (subKey === "graduationYear") return profile.education?.graduationYear || "";
+      return profile.education?.[subKey] || "";
+    }
     if (category === "presets") return profile.presets?.[subKey] || "";
     return "";
   }
