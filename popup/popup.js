@@ -15,6 +15,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       btn.classList.add('active');
       const target = document.getElementById(btn.dataset.tab);
       if (target) target.classList.add('active');
+      if (btn.dataset.tab === 'tab-logs') {
+        renderAuditLogs();
+        renderIgnoredFields();
+      }
     });
   });
 
@@ -25,6 +29,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const targetContent = document.getElementById(tabId);
     if (targetTabBtn) targetTabBtn.classList.add('active');
     if (targetContent) targetContent.classList.add('active');
+    if (tabId === 'tab-logs') {
+      renderAuditLogs();
+      renderIgnoredFields();
+    }
   }
 
   // Header Settings Button
@@ -698,6 +706,148 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderCustomFields(activeProfile.customFields);
     updateSummary(activeProfile);
   }
+
+  function downloadFile(content, filename, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+  }
+
+  // 10. Audit Logger & Activity UI
+  async function renderAuditLogs() {
+    const logs = await AuditLogger.getLogs();
+    const stats = await AuditLogger.getStats();
+
+    // Update stats metrics
+    document.getElementById('log-stat-autofills').textContent = stats.totalAutofills;
+    document.getElementById('log-stat-captures').textContent = stats.totalManualCaptures;
+    document.getElementById('log-stat-errors').textContent = stats.totalErrors;
+    document.getElementById('log-stat-success-rate').textContent = `${stats.successRate} Success`;
+
+    const feedEl = document.getElementById('audit-log-feed');
+    const filterQuery = (document.getElementById('log-filter-input')?.value || "").toLowerCase().trim();
+
+    let filtered = logs;
+    if (filterQuery) {
+      filtered = logs.filter(l => 
+        (l.fieldLabel && l.fieldLabel.toLowerCase().includes(filterQuery)) ||
+        (l.domain && l.domain.toLowerCase().includes(filterQuery)) ||
+        (l.portalType && l.portalType.toLowerCase().includes(filterQuery)) ||
+        (l.actionType && l.actionType.toLowerCase().includes(filterQuery)) ||
+        (l.details && l.details.toLowerCase().includes(filterQuery))
+      );
+    }
+
+    if (!filtered || filtered.length === 0) {
+      feedEl.innerHTML = `<div class="ap-text-muted" style="padding: 8px 0;">No matching activity logged.</div>`;
+      return;
+    }
+
+    feedEl.innerHTML = filtered.slice(0, 100).map(item => {
+      const timeStr = new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      let badgeColor = "var(--primary)";
+      let badgeLabel = "Autofilled";
+      if (item.status === 'error') {
+        badgeColor = "#ef4444";
+        badgeLabel = "Error";
+      } else if (item.actionType === 'manual_entry') {
+        badgeColor = "#10b981";
+        badgeLabel = "Manual";
+      } else if (item.actionType === 'page_learned') {
+        badgeColor = "#8b5cf6";
+        badgeLabel = "Learned";
+      } else if (item.actionType === 'skipped') {
+        badgeColor = "#f59e0b";
+        badgeLabel = "Skipped";
+      }
+
+      return `
+        <div style="background: var(--bg-hover); padding: 8px; border-radius: 6px; border-left: 3px solid ${badgeColor}; display: flex; flex-direction: column; gap: 3px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="background: ${badgeColor}20; color: ${badgeColor}; font-weight: 700; font-size: 9.5px; padding: 1px 5px; border-radius: 4px;">${badgeLabel}</span>
+              <span style="font-weight: 600; font-size: 11px; color: var(--text);">${escapeHtml(item.fieldLabel || item.matchedKey || "Field")}</span>
+            </div>
+            <span style="font-size: 9.5px; color: var(--text-muted);">${timeStr}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted);">
+            <span>${escapeHtml(item.domain || item.portalType || "Portal")}</span>
+            ${item.valueSet ? `<span style="max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text);">"${escapeHtml(item.valueSet)}"</span>` : ""}
+          </div>
+          ${item.details ? `<div style="font-size: 9.5px; color: var(--text-muted); font-style: italic;">${escapeHtml(item.details)}</div>` : ""}
+        </div>
+      `;
+    }).join('');
+  }
+
+  // 11. Ignored Fields List Rendering
+  function renderIgnoredFields() {
+    const listEl = document.getElementById('ignored-fields-list');
+    const countBadge = document.getElementById('ignored-fields-count');
+    const ignored = activeProfile.ignoredOptionalFields || [];
+
+    countBadge.textContent = ignored.length;
+
+    if (!ignored || ignored.length === 0) {
+      listEl.innerHTML = `<div class="ap-text-muted" style="font-size: 11px; padding: 4px 0;">No ignored optional fields yet.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = ignored.map(item => `
+      <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-hover); padding: 6px 8px; border-radius: 4px;">
+        <span style="font-size: 11px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;" title="${escapeHtml(item.label)}">
+          🚫 ${escapeHtml(item.label)}
+        </span>
+        <button class="ap-btn-unignore ap-btn ap-btn-outline ap-btn-sm" data-id="${item.id || item.label}" style="font-size: 10px; padding: 2px 6px;">
+          Un-ignore
+        </button>
+      </div>
+    `).join('');
+
+    listEl.querySelectorAll('.ap-btn-unignore').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const id = e.target.dataset.id;
+        await StorageService.removeIgnoredOptionalField(id);
+        activeProfile = await StorageService.getProfile();
+        renderIgnoredFields();
+      });
+    });
+  }
+
+  // Export JSON Button
+  document.getElementById('btn-export-logs-json').addEventListener('click', async () => {
+    const jsonStr = await AuditLogger.exportJSON();
+    const dateStr = new Date().toISOString().split('T')[0];
+    downloadFile(jsonStr, `applypilot-audit-log-${dateStr}.json`, 'application/json');
+  });
+
+  // Export CSV Button
+  document.getElementById('btn-export-logs-csv').addEventListener('click', async () => {
+    const csvStr = await AuditLogger.exportCSV();
+    const dateStr = new Date().toISOString().split('T')[0];
+    downloadFile(csvStr, `applypilot-audit-log-${dateStr}.csv`, 'text/csv');
+  });
+
+  // Clear Logs Button
+  document.getElementById('btn-clear-logs').addEventListener('click', async () => {
+    if (confirm("Clear all ApplyPilot activity and audit logs?")) {
+      await AuditLogger.clearLogs();
+      renderAuditLogs();
+    }
+  });
+
+  // Log filter search input
+  document.getElementById('log-filter-input')?.addEventListener('input', () => {
+    renderAuditLogs();
+  });
 
   function escapeHtml(str) {
     if (!str) return '';

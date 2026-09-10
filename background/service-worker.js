@@ -1,7 +1,7 @@
 // ApplyPilot AI - Background Service Worker (Manifest V3)
 // Ephemeral, Stateless, Secure API Proxy for Gemini Free Tier
 
-importScripts('../lib/storage.js', '../lib/pdf-extractor.js', '../lib/gemini-service.js');
+importScripts('../lib/storage.js', '../lib/pdf-extractor.js', '../lib/gemini-service.js', '../lib/audit-logger.js');
 
 // 1. Extension Installation & Setup
 chrome.runtime.onInstalled.addListener(async () => {
@@ -97,6 +97,43 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         case "DELETE_CUSTOM_FIELD": {
           const fields = await StorageService.deleteCustomField(request.id);
           sendResponse({ success: true, fields });
+          break;
+        }
+
+        case "LOG_AUDIT_ENTRY": {
+          const entry = await AuditLogger.log(request.logData);
+          sendResponse({ success: true, entry });
+          break;
+        }
+
+        case "GET_AUDIT_LOGS": {
+          const logs = await AuditLogger.getLogs(request.filter || {});
+          const stats = await AuditLogger.getStats();
+          sendResponse({ success: true, logs, stats });
+          break;
+        }
+
+        case "CLEAR_AUDIT_LOGS": {
+          await AuditLogger.clearLogs();
+          sendResponse({ success: true });
+          break;
+        }
+
+        case "ADD_IGNORED_FIELD": {
+          const ignored = await StorageService.addIgnoredOptionalField(request.fieldInfo);
+          sendResponse({ success: true, ignored });
+          break;
+        }
+
+        case "REMOVE_IGNORED_FIELD": {
+          const ignored = await StorageService.removeIgnoredOptionalField(request.idOrPattern);
+          sendResponse({ success: true, ignored });
+          break;
+        }
+
+        case "CLEAR_IGNORED_FIELDS": {
+          const ignored = await StorageService.clearIgnoredOptionalFields();
+          sendResponse({ success: true, ignored });
           break;
         }
 

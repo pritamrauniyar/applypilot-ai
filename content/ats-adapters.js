@@ -432,6 +432,13 @@ var AtsAdapters = {
     const containerAutomationId = container?.getAttribute('data-automation-id') || container?.getAttribute('data-uxi-element-id') || '';
     const fullAutomationId = `${dataAutomationId} ${containerAutomationId}`.trim().toLowerCase();
 
+    const isRequired = !!(
+      (el.hasAttribute && el.hasAttribute('required')) ||
+      (el.getAttribute && el.getAttribute('aria-required') === 'true') ||
+      textSignals.some(s => s.includes('*') || /\brequired\b/i.test(s))
+    );
+    const isOptional = !isRequired || textSignals.some(s => /\boptional\b/i.test(s));
+
     return {
       element: el,
       tag: el.tagName.toLowerCase(),
@@ -442,13 +449,43 @@ var AtsAdapters = {
       ariaLabel: ariaLabel.toLowerCase(),
       autocomplete: autocomplete.toLowerCase(),
       dataAutomationId: fullAutomationId,
-      combinedLabels: textSignals.join(' ').toLowerCase()
+      combinedLabels: textSignals.join(' ').toLowerCase(),
+      isRequired,
+      isOptional
     };
   },
 
   // Match an element against standard fields, custom fields, and learned memory
   matchElement(descriptor, profile, sectionIndex = 0) {
+    if (!profile) return { matched: false, descriptor };
+
     const combined = `${descriptor.combinedLabels} ${descriptor.name} ${descriptor.id} ${descriptor.placeholder} ${descriptor.ariaLabel} ${descriptor.dataAutomationId}`;
+
+    // 0. Check Ignored Optional Fields first (user explicitly skipped or ignored)
+    if (profile.ignoredOptionalFields && profile.ignoredOptionalFields.length) {
+      for (const ign of profile.ignoredOptionalFields) {
+        const pattern = (ign.pattern || ign.label || "").toLowerCase().trim();
+        if (pattern && pattern.length >= 2 && combined.includes(pattern)) {
+          return {
+            matched: false,
+            ignored: true,
+            label: ign.label || pattern,
+            reason: "User marked this field to be ignored"
+          };
+        }
+        for (const kw of (ign.keywords || [])) {
+          const cleanKw = String(kw).toLowerCase().trim();
+          if (cleanKw && cleanKw.length >= 2 && combined.includes(cleanKw)) {
+            return {
+              matched: false,
+              ignored: true,
+              label: ign.label || cleanKw,
+              reason: "User marked this field to be ignored"
+            };
+          }
+        }
+      }
+    }
 
     // 1. Check Learned Memory from AI Feedback Loop first (user approved previously)
     if (profile.learnedMemory && profile.learnedMemory.length) {

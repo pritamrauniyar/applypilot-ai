@@ -56,6 +56,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Rescan button
   document.getElementById('sp-btn-refresh').addEventListener('click', checkActiveTab);
 
+  // Export audit logs button
+  document.getElementById('sp-btn-export-logs')?.addEventListener('click', async () => {
+    const jsonStr = await AuditLogger.exportJSON();
+    const dateStr = new Date().toISOString().split('T')[0];
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `applypilot-audit-log-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+  });
+
   // Autofill button
   document.getElementById('sp-autofill-btn').addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

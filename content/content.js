@@ -19,9 +19,60 @@
     return null;
   }
 
+  // Extension Context Validation Guard
+  function isExtensionValid() {
+    return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id;
+  }
+
+  // Safe Message Passing Guard against "Extension context invalidated"
+  function safeSendMessage(message, callback) {
+    if (!isExtensionValid()) {
+      console.warn("[ApplyPilot] Extension context invalidated (reloaded). Please refresh this page to reconnect.");
+      if (callback) callback({ error: "Extension context invalidated" });
+      return;
+    }
+    try {
+      chrome.runtime.sendMessage(message, (res) => {
+        const lastErr = chrome.runtime.lastError;
+        if (lastErr && lastErr.message && (lastErr.message.includes("context invalidated") || lastErr.message.includes("Receiving end"))) {
+          console.warn("[ApplyPilot] Message dispatch notice:", lastErr.message);
+        }
+        if (callback) {
+          callback(res || (lastErr ? { error: lastErr.message } : null));
+        }
+      });
+    } catch (err) {
+      console.warn("[ApplyPilot] safeSendMessage caught:", err.message);
+      if (callback) callback({ error: err.message });
+    }
+  }
+
+  // Audit Logger Telemetry Helper
+  function logAuditAction(entry) {
+    try {
+      const host = window.location.hostname || "";
+      let portalType = "generic";
+      if (host.includes("myworkdayjobs.com") || host.includes("workday")) portalType = "workday";
+      else if (host.includes("greenhouse.io")) portalType = "greenhouse";
+      else if (host.includes("lever.co")) portalType = "lever";
+      else if (host.includes("ashbyhq.com")) portalType = "ashby";
+      else if (host.includes("oracle") || host.includes("taleo") || host.includes("americanexpress")) portalType = "enterprise";
+
+      safeSendMessage({
+        action: "LOG_AUDIT_ENTRY",
+        logData: {
+          url: window.location.href,
+          domain: host,
+          portalType,
+          ...entry
+        }
+      });
+    } catch (e) {}
+  }
+
   // 1. Fetch user profile from background storage or direct local storage
   async function loadProfile() {
-    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    if (typeof chrome !== 'undefined' && chrome.storage?.local && isExtensionValid()) {
       try {
         const data = await chrome.storage.local.get(['applypilot_profile']);
         if (data?.applypilot_profile) {
@@ -32,93 +83,183 @@
     }
 
     return new Promise((resolve) => {
-      try {
-        chrome.runtime.sendMessage({ action: "GET_PROFILE" }, (response) => {
-          if (response?.profile) {
-            cachedProfile = response.profile;
-          }
-          resolve(cachedProfile);
-        });
-      } catch (e) {
+      safeSendMessage({ action: "GET_PROFILE" }, (response) => {
+        if (response?.profile) {
+          cachedProfile = response.profile;
+        }
         resolve(cachedProfile);
-      }
+      });
     });
   }
 
   // 2. React / Vue / Modern Reactive Framework Value Setter
-  // Standard input.value = val gets ignored by React synthetic state. This bypasses that reliably.
+  // Guarded against DOMException, InvalidStateError, and read-only inputs
   function setNativeValue(element, value) {
-    if (!element) return;
+    if (!element || value === undefined || value === null) return;
+    if (element.disabled || element.readOnly) return;
+    if (element.type === 'file') return; // File inputs can only be set to empty string programmatically
+
+    const valStr = String(value).trim();
 
     if (element.tagName === 'SELECT') {
-      const targetStr = String(value).toLowerCase().trim();
+      const targetStr = valStr.toLowerCase();
       let matchedIdx = -1;
 
-      for (let i = 0; i < element.options.length; i++) {
-        const opt = element.options[i];
-        const optText = opt.text.toLowerCase().trim();
-        const optVal = opt.value.toLowerCase().trim();
+      if (element.options) {
+        for (let i = 0; i < element.options.length; i++) {
+          const opt = element.options[i];
+          const optText = (opt.text || "").toLowerCase().trim();
+          const optVal = (opt.value || "").toLowerCase().trim();
 
-        if (optText === targetStr || optVal === targetStr || optText.includes(targetStr) || targetStr.includes(optText)) {
-          matchedIdx = i;
-          break;
+          if (optText === targetStr || optVal === targetStr || optText.includes(targetStr) || (targetStr.length > 3 && targetStr.includes(optText))) {
+            matchedIdx = i;
+            break;
+          }
         }
       }
 
       if (matchedIdx !== -1) {
-        element.selectedIndex = matchedIdx;
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-        element.dispatchEvent(new Event('input', { bubbles: true }));
+        try {
+          element.selectedIndex = matchedIdx;
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+        } catch (e) {
+          console.warn("[ApplyPilot] Select dispatch notice:", e.message);
+        }
       }
       return;
     }
 
     if (element.type === 'checkbox') {
-      const shouldCheck = typeof value === 'boolean' ? value : ['yes', 'true', '1'].includes(String(value).toLowerCase());
-      element.checked = shouldCheck;
-      element.dispatchEvent(new Event('change', { bubbles: true }));
-      element.dispatchEvent(new Event('click', { bubbles: true }));
+      const shouldCheck = typeof value === 'boolean' ? value : ['yes', 'true', '1'].includes(valStr.toLowerCase());
+      try {
+        element.checked = shouldCheck;
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        element.dispatchEvent(new Event('click', { bubbles: true }));
+      } catch (e) {
+        console.warn("[ApplyPilot] Checkbox dispatch notice:", e.message);
+      }
       return;
     }
 
     if (element.type === 'radio') {
-      element.checked = true;
-      element.dispatchEvent(new Event('change', { bubbles: true }));
-      element.dispatchEvent(new Event('click', { bubbles: true }));
+      try {
+        element.checked = true;
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        element.dispatchEvent(new Event('click', { bubbles: true }));
+      } catch (e) {
+        console.warn("[ApplyPilot] Radio dispatch notice:", e.message);
+      }
       return;
     }
 
-    // Focus first to activate framework listener
-    element.dispatchEvent(new Event('focus', { bubbles: true }));
+    // Handle Date & Month input types gracefully to prevent InvalidStateError / DOMException
+    let formattedVal = valStr;
 
-    // Standard text, textarea, email, tel, url
-    const valueSetter = Object.getOwnPropertyDescriptor(element, 'value')?.set;
-    const prototype = Object.getPrototypeOf(element);
-    const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+    if (element.type === 'date') {
+      // If candidate role is ongoing ("Present" / "Current"), check any adjacent "Currently work here" checkbox
+      if (valStr.toLowerCase().includes('present') || valStr.toLowerCase().includes('current')) {
+        const container = element.closest('form, fieldset, section, div[data-automation-id*="experience"], div[class*="experience"], div');
+        if (container) {
+          const currentBox = container.querySelector('input[type="checkbox"][id*="current" i], input[type="checkbox"][name*="current" i], input[type="checkbox"][data-automation-id*="current" i]');
+          if (currentBox && !currentBox.checked) {
+            try {
+              currentBox.checked = true;
+              currentBox.dispatchEvent(new Event('change', { bubbles: true }));
+              currentBox.dispatchEvent(new Event('click', { bubbles: true }));
+            } catch (e) {}
+          }
+        }
+        return; // Skip setting literal text "Present" into HTML5 <input type="date">
+      }
 
-    if (prototypeValueSetter && valueSetter !== prototypeValueSetter) {
-      prototypeValueSetter.call(element, value);
-    } else if (valueSetter) {
-      valueSetter.call(element, value);
-    } else {
-      element.value = value;
+      // Format to valid ISO date: YYYY-MM-DD
+      if (/^\d{4}-\d{2}$/.test(valStr)) {
+        formattedVal = `${valStr}-01`;
+      } else if (/^\d{2}\/\d{4}$/.test(valStr)) {
+        const parts = valStr.split('/');
+        formattedVal = `${parts[1]}-${parts[0].padStart(2, '0')}-01`;
+      } else if (!/^\d{4}-\d{2}-\d{2}$/.test(valStr)) {
+        const parsed = new Date(valStr);
+        if (!isNaN(parsed.getTime())) {
+          formattedVal = parsed.toISOString().split('T')[0];
+        } else {
+          return; // Skip invalid date strings safely without throwing DOMException
+        }
+      }
+    } else if (element.type === 'month') {
+      if (valStr.toLowerCase().includes('present') || valStr.toLowerCase().includes('current')) {
+        return;
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(valStr)) {
+        formattedVal = valStr.substring(0, 7);
+      } else if (/^\d{4}-\d{2}$/.test(valStr)) {
+        formattedVal = valStr;
+      } else {
+        const parsed = new Date(valStr);
+        if (!isNaN(parsed.getTime())) {
+          formattedVal = parsed.toISOString().substring(0, 7);
+        } else {
+          return;
+        }
+      }
+    } else if (element.type === 'number') {
+      const numMatch = valStr.match(/[-+]?[0-9]*\.?[0-9]+/);
+      if (numMatch) {
+        formattedVal = numMatch[0];
+      } else {
+        return;
+      }
     }
 
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    element.dispatchEvent(new Event('blur', { bubbles: true }));
+    // Focus first to activate framework listener
+    try {
+      element.dispatchEvent(new Event('focus', { bubbles: true }));
+    } catch (e) {}
+
+    // Standard text, textarea, email, tel, url
+    try {
+      const valueSetter = Object.getOwnPropertyDescriptor(element, 'value')?.set;
+      const prototype = Object.getPrototypeOf(element);
+      const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+
+      if (prototypeValueSetter && valueSetter !== prototypeValueSetter) {
+        prototypeValueSetter.call(element, formattedVal);
+      } else if (valueSetter) {
+        valueSetter.call(element, formattedVal);
+      } else {
+        element.value = formattedVal;
+      }
+    } catch (err) {
+      try {
+        element.value = formattedVal;
+      } catch (fallbackErr) {
+        console.warn("[ApplyPilot] DOMException setting field value:", fallbackErr.name, fallbackErr.message);
+        throw fallbackErr;
+      }
+    }
+
+    try {
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+      element.dispatchEvent(new Event('blur', { bubbles: true }));
+    } catch (e) {
+      console.warn("[ApplyPilot] Event dispatch notice:", e.message);
+    }
 
     // Add gentle visual highlight
     element.classList.add('ap-filled-highlight');
     setTimeout(() => {
-      element.classList.remove('ap-filled-highlight');
+      try {
+        element.classList.remove('ap-filled-highlight');
+      } catch (e) {}
     }, 2000);
   }
 
   // 3. Scan DOM Form Fields
   function scanFormFields() {
     const candidates = Array.from(document.querySelectorAll(
-      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), select, textarea, button[aria-haspopup="listbox"], [role="combobox"]'
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="file"]), select, textarea, button[aria-haspopup="listbox"], [role="combobox"]'
     ));
     const matched = [];
     const unmatched = [];
@@ -147,6 +288,11 @@
 
       const matchResult = adapters.matchElement(descriptor, cachedProfile, sectionIndex);
 
+      // Skip explicitly ignored optional fields
+      if (matchResult.ignored) {
+        continue;
+      }
+
       if (matchResult.matched && matchResult.value) {
         matched.push({ element: el, descriptor, matchResult, sectionIndex });
       } else {
@@ -164,8 +310,11 @@
     let filledCount = 0;
 
     for (const item of matched) {
+      const el = item.element;
+      const label = item.descriptor.combinedLabels || item.descriptor.name || item.descriptor.placeholder || "Field";
+      const key = item.matchResult.def?.key || item.matchResult.key || "unknown";
+
       try {
-        const el = item.element;
         // Don't overwrite non-empty fields that already have valid user/workday values
         const currentVal = (el.value !== undefined ? String(el.value).trim() : "") || (el.tagName === 'BUTTON' ? el.innerText.trim() : "");
         if (currentVal.length > 0 && el.type !== 'checkbox' && el.type !== 'radio' && el.tagName !== 'BUTTON') {
@@ -174,8 +323,27 @@
 
         setNativeValue(el, item.matchResult.value);
         filledCount++;
+
+        logAuditAction({
+          actionType: "autofill",
+          fieldLabel: label,
+          fieldNameOrId: item.descriptor.name || item.descriptor.id,
+          matchedKey: key,
+          valueSet: item.matchResult.value,
+          status: "success",
+          details: `Autofilled from ${item.matchResult.source || "standard"}`
+        });
       } catch (err) {
         console.warn("[ApplyPilot] Error setting field value:", err);
+        logAuditAction({
+          actionType: "autofill",
+          fieldLabel: label,
+          fieldNameOrId: item.descriptor.name || item.descriptor.id,
+          matchedKey: key,
+          valueSet: item.matchResult.value,
+          status: "error",
+          details: `DOMException/Error: ${err.message || String(err)}`
+        });
       }
     }
 
@@ -221,7 +389,7 @@
         btn.classList.add('ap-loading');
         btn.innerHTML = `<span>⏳ Writing...</span>`;
 
-        chrome.runtime.sendMessage({
+        safeSendMessage({
           action: "GENERATE_AI_ANSWER",
           question: questionText,
           jobTitle: document.title || "Software Engineer II"
@@ -231,6 +399,15 @@
 
           if (res && res.answer) {
             setNativeValue(ta, res.answer);
+            logAuditAction({
+              actionType: "ai_suggest",
+              fieldLabel: questionText,
+              fieldNameOrId: descriptor.name || descriptor.id,
+              matchedKey: "infield_ai_draft",
+              valueSet: res.answer,
+              status: "success",
+              details: "AI draft generated and inserted"
+            });
           } else if (res && res.error) {
             alert(`ApplyPilot AI Notice: ${res.error}`);
           }
@@ -269,6 +446,7 @@
       </div>
       <div class="ap-review-footer">
         <button class="ap-btn-secondary" id="ap-review-skip">Skip</button>
+        <button class="ap-btn-secondary" id="ap-review-ignore" title="Never ask or autofill this optional field again">Skip & Ignore Field</button>
         <button class="ap-btn-primary" id="ap-review-approve">Approve, Fill & Remember (Save to Profile)</button>
       </div>
     `;
@@ -277,6 +455,30 @@
 
     card.querySelector('#ap-review-close').onclick = () => { card.remove(); if (onDismiss) onDismiss(); };
     card.querySelector('#ap-review-skip').onclick = () => { card.remove(); if (onDismiss) onDismiss(); };
+    card.querySelector('#ap-review-ignore').onclick = () => {
+      card.remove();
+      safeSendMessage({
+        action: "ADD_IGNORED_FIELD",
+        fieldInfo: {
+          label: questionText,
+          keywords: [questionText.toLowerCase().trim(), descriptor.name, descriptor.id].filter(Boolean)
+        }
+      }, async () => {
+        showToast(`✓ Ignored "${questionText.slice(0, 24)}"`);
+        logAuditAction({
+          actionType: "skipped",
+          fieldLabel: questionText,
+          fieldNameOrId: descriptor.name || descriptor.id,
+          matchedKey: "ignored_field",
+          valueSet: "",
+          status: "skipped",
+          details: "User added field to ignored optional list"
+        });
+        await loadProfile();
+        if (onDismiss) onDismiss();
+      });
+    };
+
     card.querySelector('#ap-review-approve').onclick = () => {
       const finalVal = card.querySelector('#ap-review-input').value.trim();
       card.remove();
@@ -303,7 +505,7 @@
     }
 
     // Query Gemini
-    chrome.runtime.sendMessage({
+    safeSendMessage({
       action: "SUGGEST_FIELD_ANSWER",
       fieldLabel: questionText,
       fieldType: target.descriptor.tag,
@@ -320,7 +522,7 @@
             setNativeValue(target.element, approvedAnswer);
 
             // Save into learnedMemory for current & future use!
-            chrome.runtime.sendMessage({
+            safeSendMessage({
               action: "SAVE_LEARNED_FIELD",
               fieldData: {
                 fieldLabel: questionText,
@@ -333,6 +535,15 @@
                 ].filter(Boolean)
               }
             }, () => {
+              logAuditAction({
+                actionType: "ai_suggest",
+                fieldLabel: questionText,
+                fieldNameOrId: target.descriptor.name || target.descriptor.id,
+                matchedKey: questionText,
+                valueSet: approvedAnswer,
+                status: "success",
+                details: "AI suggestion approved and learned"
+              });
               // Reload profile memory
               loadProfile();
             });
@@ -431,7 +642,7 @@
 
     floatingHubEl.querySelector('#ap-btn-sidepanel').addEventListener('click', () => {
       menu.classList.remove('ap-visible');
-      chrome.runtime.sendMessage({ action: "OPEN_SIDEPANEL" });
+      safeSendMessage({ action: "OPEN_SIDEPANEL" });
     });
   }
 
@@ -473,6 +684,7 @@
     let debounceTimer = null;
 
     const handleFieldChange = (e) => {
+      if (!isExtensionValid()) return;
       const el = e.target;
       if (!el || !el.matches || !el.matches('input, select, textarea')) return;
       if (el.type === 'password' || el.type === 'hidden' || el.type === 'submit' || el.type === 'button') return;
@@ -484,6 +696,7 @@
 
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(async () => {
+        if (!isExtensionValid()) return;
         const adapters = getAtsAdapters();
         if (!adapters) return;
         await loadProfile();
@@ -500,8 +713,8 @@
           return;
         }
 
-        // Save into learned memory in background
-        chrome.runtime.sendMessage({
+        // Save into learned memory in background safely
+        safeSendMessage({
           action: "SAVE_LEARNED_FIELD",
           fieldData: {
             fieldLabel: cleanLabel,
@@ -522,6 +735,15 @@
               if (idx >= 0) cachedProfile.learnedMemory[idx] = res.item;
               else cachedProfile.learnedMemory.unshift(res.item);
             }
+            logAuditAction({
+              actionType: "manual_entry",
+              fieldLabel: cleanLabel,
+              fieldNameOrId: descriptor.name || descriptor.id,
+              matchedKey: cleanLabel,
+              valueSet: val,
+              status: "success",
+              details: "User input captured and learned"
+            });
             showToast(`✓ Remembered: "${cleanLabel.slice(0, 24)}"`);
           }
         });
@@ -542,7 +764,7 @@
     }
 
     const candidates = Array.from(document.querySelectorAll(
-      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), select, textarea'
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="file"]), select, textarea'
     ));
 
     let count = 0;
@@ -588,7 +810,7 @@
       }
 
       if (!match.matched || match.value !== val) {
-        chrome.runtime.sendMessage({
+        safeSendMessage({
           action: "SAVE_LEARNED_FIELD",
           fieldData: {
             fieldLabel: cleanLabel,
@@ -622,7 +844,7 @@
         cachedProfile.experience.items = newExpItems;
         if (newExpItems[0].title) cachedProfile.experience.currentTitle = newExpItems[0].title;
         if (newExpItems[0].company) cachedProfile.experience.currentCompany = newExpItems[0].company;
-        chrome.runtime.sendMessage({ action: "SAVE_PROFILE", profile: cachedProfile });
+        safeSendMessage({ action: "SAVE_PROFILE", profile: cachedProfile });
         count += newExpItems.length;
       }
     }
@@ -646,10 +868,20 @@
         cachedProfile.education.items = newEduItems;
         if (newEduItems[0].school) cachedProfile.education.school = newEduItems[0].school;
         if (newEduItems[0].degree) cachedProfile.education.degree = newEduItems[0].degree;
-        chrome.runtime.sendMessage({ action: "SAVE_PROFILE", profile: cachedProfile });
+        safeSendMessage({ action: "SAVE_PROFILE", profile: cachedProfile });
         count += newEduItems.length;
       }
     }
+
+    logAuditAction({
+      actionType: "page_learned",
+      fieldLabel: "Page Field Scan",
+      fieldNameOrId: "bulk_capture",
+      matchedKey: "bulk_capture",
+      valueSet: `${count} fields`,
+      status: "success",
+      details: `Captured ${count} fields including multi-experience/education entries`
+    });
 
     if (count > 0) {
       showToast(`✓ Captured & remembered ${count} fields from page!`);
@@ -677,6 +909,7 @@
   // 12. Runtime Message Listener
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
+      if (!isExtensionValid()) return;
       if (request.action === "AUTOFILL") {
         const res = await autofillForm();
         sendResponse({ success: true, ...res });

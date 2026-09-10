@@ -40,6 +40,7 @@
       <button class="ap-tab" data-tab="tab-presets" title="Standard Application Presets">📋 Presets</button>
       <button class="ap-tab" data-tab="tab-custom" title="Custom Fields">🏷️ Custom</button>
       <button class="ap-tab" data-tab="tab-resume" title="Resume AI Parser">📄 Resume</button>
+      <button class="ap-tab" data-tab="tab-logs" id="tab-btn-logs" title="Application Audit Log & Telemetry">📊 Activity</button>
       <button class="ap-tab" data-tab="tab-settings" id="tab-btn-ai-settings" title="Gemini AI Key & Settings">⚙️ AI Key</button>
     </nav>
 
@@ -372,6 +373,67 @@
       </div>
     </div>
 
+    <!-- Tab 7: Application Activity, Audit Telemetry & Ignored Fields -->
+    <div class="ap-tab-content" id="tab-logs">
+      <!-- Diagnostics Summary Metrics -->
+      <div class="ap-card" style="padding: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h4 style="margin: 0;">Application Telemetry</h4>
+          <span class="ap-tag" id="log-stat-success-rate">100% Success</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center;">
+          <div style="background: var(--bg-hover); padding: 8px; border-radius: 6px;">
+            <div style="font-size: 16px; font-weight: 700; color: var(--primary);" id="log-stat-autofills">0</div>
+            <div style="font-size: 10px; color: var(--text-muted);">Autofills</div>
+          </div>
+          <div style="background: var(--bg-hover); padding: 8px; border-radius: 6px;">
+            <div style="font-size: 16px; font-weight: 700; color: #10b981;" id="log-stat-captures">0</div>
+            <div style="font-size: 10px; color: var(--text-muted);">Captured</div>
+          </div>
+          <div style="background: var(--bg-hover); padding: 8px; border-radius: 6px;">
+            <div style="font-size: 16px; font-weight: 700; color: #ef4444;" id="log-stat-errors">0</div>
+            <div style="font-size: 10px; color: var(--text-muted);">Errors</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 6px; margin-top: 10px;">
+          <button type="button" class="ap-btn ap-btn-primary ap-btn-sm" id="btn-export-logs-json" style="flex: 1; font-size: 11px;">
+            📥 Export JSON
+          </button>
+          <button type="button" class="ap-btn ap-btn-secondary ap-btn-sm" id="btn-export-logs-csv" style="flex: 1; font-size: 11px;">
+            📊 Export CSV
+          </button>
+          <button type="button" class="ap-btn ap-btn-outline ap-btn-sm" id="btn-clear-logs" style="font-size: 11px;" title="Clear activity history">
+            🗑️
+          </button>
+        </div>
+      </div>
+
+      <!-- Ignored Optional Fields Card -->
+      <div class="ap-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h4 style="margin: 0;">Ignored Optional Fields</h4>
+          <span class="ap-badge" id="ignored-fields-count">0</span>
+        </div>
+        <p class="ap-text-muted" style="margin-bottom: 8px; font-size: 11px;">
+          Fields you skipped or marked as ignored will not be autofilled or prompted on future application portals.
+        </p>
+        <div id="ignored-fields-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 120px; overflow-y: auto;">
+          <div class="ap-text-muted" style="font-size: 11px;">No ignored optional fields yet.</div>
+        </div>
+      </div>
+
+      <!-- Recent Audit Log Feed -->
+      <div class="ap-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h4 style="margin: 0;">Recent Activity Log</h4>
+          <input type="text" id="log-filter-input" placeholder="Filter logs..." style="width: 110px; font-size: 11px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px;">
+        </div>
+        <div id="audit-log-feed" style="display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; font-size: 11px;">
+          <div class="ap-text-muted">No activity logged yet. Autofill or edit a form to generate events.</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Global Footer Save Bar -->
     <footer class="ap-footer">
       <div id="save-status" class="ap-save-status">All changes saved locally</div>
@@ -380,6 +442,7 @@
   </div>
 
   <script src="../lib/storage.js"></script>
+  <script src="../lib/audit-logger.js"></script>
   <script src="../lib/pdf-extractor.js"></script>
   <script src="popup.js"></script>
 </body>

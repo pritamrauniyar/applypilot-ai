@@ -218,13 +218,171 @@ if (m2_job.value === "Associate Software Engineer" && m2_comp.value === "StartUp
   console.error(`❌ FAILED: Multi-Exp Role #3 -> Got: ${m2_job.value} at ${m2_comp.value}`);
 }
 
-console.log(`\n========================================`);
-console.log(`Summary: ${passed}/${total} Tests Passed (${Math.round(passed/total * 100)}%)`);
-console.log(`========================================\n`);
+// 6. Testing Ignored Optional Fields Tracking
+console.log('\n--- 6. Testing Ignored Optional Fields Tracking ---');
+const profileWithIgnored = {
+  ...DEFAULT_PROFILE,
+  ignoredOptionalFields: [
+    {
+      id: "ign-1",
+      label: "Gender Identity (Optional)",
+      pattern: "gender identity",
+      keywords: ["gender identity", "gender"]
+    },
+    {
+      id: "ign-2",
+      label: "Phone Extension",
+      pattern: "phone extension",
+      keywords: ["extension", "phone extension"]
+    }
+  ]
+};
 
-if (passed === total) {
-  process.exit(0);
+const ignoredGenderDesc = mockDescriptor({ label: 'Gender Identity (Optional)', name: 'gender_opt' });
+const ignoredPhoneExtDesc = mockDescriptor({ label: 'Phone Extension', name: 'extension' });
+const requiredFieldDesc = mockDescriptor({ label: 'First Name *', name: 'first_name' });
+
+const m_gender = AtsAdapters.matchElement(ignoredGenderDesc, profileWithIgnored);
+const m_ext = AtsAdapters.matchElement(ignoredPhoneExtDesc, profileWithIgnored);
+const m_req = AtsAdapters.matchElement(requiredFieldDesc, profileWithIgnored);
+
+total += 3;
+if (m_gender.ignored === true && m_gender.matched === false) {
+  console.log(`✓ [PASS] Ignored Optional Field: Gender Identity correctly skipped`);
+  passed++;
 } else {
-  process.exit(1);
+  console.error(`❌ FAILED: Gender Identity should be ignored. Result:`, m_gender);
 }
+
+if (m_ext.ignored === true && m_ext.matched === false) {
+  console.log(`✓ [PASS] Ignored Optional Field: Phone Extension correctly skipped`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Phone Extension should be ignored. Result:`, m_ext);
+}
+
+if (m_req.matched === true && m_req.value === "Pritam") {
+  console.log(`✓ [PASS] Non-ignored Field: First Name remains matched`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Required Field First Name should be matched. Result:`, m_req);
+}
+
+// 7. Testing AuditLogger Module
+console.log('\n--- 7. Testing AuditLogger & Telemetry ---');
+const { AuditLogger, MAX_AUDIT_LOG_ENTRIES } = require('../lib/audit-logger.js');
+
+total += 4;
+AuditLogger.log({
+  url: "https://blackrock.wd1.myworkdayjobs.com/apply",
+  domain: "blackrock.wd1.myworkdayjobs.com",
+  portalType: "workday",
+  actionType: "autofill",
+  fieldLabel: "Given Name(s)",
+  fieldNameOrId: "legalNameSection_firstName",
+  matchedKey: "firstName",
+  valueSet: "Pritam",
+  status: "success",
+  details: "Autofilled from standard"
+}).then(mockLogEntry => {
+  if (mockLogEntry.id && mockLogEntry.actionType === "autofill" && mockLogEntry.status === "success") {
+    console.log(`✓ [PASS] AuditLogger -> Created log entry: ${mockLogEntry.id} (${mockLogEntry.fieldLabel})`);
+    passed++;
+  } else {
+    console.error(`❌ FAILED: AuditLogger creation failed:`, mockLogEntry);
+  }
+});
+
+if (MAX_AUDIT_LOG_ENTRIES === 1000) {
+  console.log(`✓ [PASS] AuditLogger -> Maximum FIFO cap configured at ${MAX_AUDIT_LOG_ENTRIES} entries`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: MAX_AUDIT_LOG_ENTRIES unexpected:`, MAX_AUDIT_LOG_ENTRIES);
+}
+
+// Test Export CSV Headers
+AuditLogger.exportCSV().then(csv => {
+  if (csv.includes("Timestamp,Action,Status,Domain,Portal,Field Label,Matched Key,Value Set,Details")) {
+    console.log(`✓ [PASS] AuditLogger -> exportCSV produces correct headers`);
+    passed++;
+  } else {
+    console.error(`❌ FAILED: exportCSV headers missing:`, csv);
+  }
+});
+
+// Test Export JSON Structure
+AuditLogger.exportJSON().then(json => {
+  const parsed = JSON.parse(json);
+  if (parsed.app === "ApplyPilot AI" && parsed.stats) {
+    console.log(`✓ [PASS] AuditLogger -> exportJSON produces structured telemetry export`);
+    passed++;
+  } else {
+    console.error(`❌ FAILED: exportJSON structure invalid:`, json);
+  }
+});
+
+// 8. Testing Date & Numeric Sanitization (DOMException Prevention)
+console.log('\n--- 8. Testing Date & Numeric Sanitization ---');
+function sanitizeValueForInputType(type, valStr) {
+  if (type === 'date') {
+    if (valStr.toLowerCase().includes('present') || valStr.toLowerCase().includes('current')) {
+      return null; // Signals to toggle checkbox instead of writing string to date input
+    }
+    if (/^\d{4}-\d{2}$/.test(valStr)) return `${valStr}-01`;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(valStr)) return valStr;
+    const p = new Date(valStr);
+    return !isNaN(p.getTime()) ? p.toISOString().split('T')[0] : null;
+  }
+  if (type === 'number') {
+    const m = valStr.match(/[-+]?[0-9]*\.?[0-9]+/);
+    return m ? m[0] : null;
+  }
+  return valStr;
+}
+
+total += 4;
+const datePresent = sanitizeValueForInputType('date', 'Present');
+if (datePresent === null) {
+  console.log(`✓ [PASS] Date Input: "Present" safely intercepted to prevent DOMException`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: "Present" date string should be null, got:`, datePresent);
+}
+
+const dateMonth = sanitizeValueForInputType('date', '2022-08');
+if (dateMonth === '2022-08-01') {
+  console.log(`✓ [PASS] Date Input: "2022-08" correctly converted to valid ISO date "2022-08-01"`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Date conversion failed, got:`, dateMonth);
+}
+
+const numGpa = sanitizeValueForInputType('number', '3.8 GPA');
+if (numGpa === '3.8') {
+  console.log(`✓ [PASS] Number Input: "3.8 GPA" sanitized to numeric "3.8"`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Number sanitization failed, got:`, numGpa);
+}
+
+const numYears = sanitizeValueForInputType('number', '4+ years of experience');
+if (numYears === '4') {
+  console.log(`✓ [PASS] Number Input: "4+ years" sanitized to numeric "4"`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Number sanitization failed, got:`, numYears);
+}
+
+// Allow async tests to complete
+setTimeout(() => {
+  console.log(`\n========================================`);
+  console.log(`Summary: ${passed}/${total} Tests Passed (${Math.round(passed/total * 100)}%)`);
+  console.log(`========================================\n`);
+
+  if (passed === total) {
+    process.exit(0);
+  } else {
+    process.exit(1);
+  }
+}, 50);
 

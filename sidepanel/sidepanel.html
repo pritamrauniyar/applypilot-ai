@@ -21,7 +21,10 @@
           <p class="sp-subtitle">Universal Application Copilot</p>
         </div>
       </div>
-      <button class="sp-btn-refresh" id="sp-btn-refresh" title="Rescan Page">🔄</button>
+      <div style="display: flex; gap: 4px;">
+        <button class="sp-btn-refresh" id="sp-btn-export-logs" title="Export Application Activity Log (JSON)">📋</button>
+        <button class="sp-btn-refresh" id="sp-btn-refresh" title="Rescan Page">🔄</button>
+      </div>
     </header>
 
     <!-- Main Action Bar -->
@@ -112,6 +115,7 @@
   </div>
 
   <script src="../lib/storage.js"></script>
+  <script src="../lib/audit-logger.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
