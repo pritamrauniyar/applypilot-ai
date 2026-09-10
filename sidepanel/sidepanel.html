@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ApplyPilot AI — Companion</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div class="sp-container">
+    <!-- Header -->
+    <header class="sp-header">
+      <div class="sp-brand">
+        <div class="sp-logo">
+          <svg viewBox="0 0 24 24">
+            <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+        </div>
+        <div>
+          <h2 class="sp-title">ApplyPilot <span class="sp-badge-ai">Companion</span></h2>
+          <p class="sp-subtitle">Universal Application Copilot</p>
+        </div>
+      </div>
+      <button class="sp-btn-refresh" id="sp-btn-refresh" title="Rescan Page">🔄</button>
+    </header>
+
+    <!-- Main Action Bar -->
+    <div class="sp-action-banner">
+      <button class="sp-primary-btn" id="sp-autofill-btn">
+        <svg viewBox="0 0 24 24" width="16" height="16">
+          <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+        Autofill This Page
+      </button>
+      <button class="sp-secondary-btn" id="sp-scan-ai-btn">
+        ✨ AI Unmatched
+      </button>
+    </div>
+
+    <!-- Live Form Detection Status -->
+    <section class="sp-section">
+      <div class="sp-section-header">
+        <h3>Page Form Status</h3>
+        <span class="sp-status-badge" id="sp-status-badge">Scanning...</span>
+      </div>
+      <div class="sp-status-card" id="sp-status-card">
+        <div class="sp-stat-item">
+          <span class="sp-stat-val" id="sp-stat-total">0</span>
+          <span class="sp-stat-lbl">Fields Found</span>
+        </div>
+        <div class="sp-stat-item">
+          <span class="sp-stat-val sp-text-success" id="sp-stat-matched">0</span>
+          <span class="sp-stat-lbl">Autofilled</span>
+        </div>
+        <div class="sp-stat-item">
+          <span class="sp-stat-val sp-text-warn" id="sp-stat-unmatched">0</span>
+          <span class="sp-stat-lbl">Unmapped</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- API Key Status / Quick Entry in Side Panel -->
+    <div id="sp-api-banner" class="sp-card" style="border-left: 3px solid var(--primary); display: none;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <span style="font-weight: 700; font-size: 11.5px;">🔑 Free Gemini API Key</span>
+        <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: var(--primary); font-size: 11px; text-decoration: none; font-weight: 600;">Get Free Key ↗</a>
+      </div>
+      <div style="display: flex; gap: 6px;">
+        <input type="password" id="sp-api-key-input" class="sp-input" placeholder="Paste key starting with AIzaSy...">
+        <button class="sp-secondary-btn" id="sp-btn-save-key" style="padding: 6px 12px; font-size: 11px; white-space: nowrap;">Save Key</button>
+      </div>
+    </div>
+
+    <!-- AI Essay & Question Scratchpad -->
+    <section class="sp-section">
+      <div class="sp-section-header">
+        <h3>🤖 In-Field AI Assistant</h3>
+      </div>
+      <div class="sp-card">
+        <label class="sp-label">Application Question / Prompt:</label>
+        <input type="text" id="sp-ai-prompt" class="sp-input" placeholder="e.g. Why do you want to work at [Company]?">
+        
+        <div class="sp-flex-row" style="margin-top: 8px;">
+          <button class="sp-secondary-btn sp-flex-1" id="sp-btn-generate-essay">
+            ✨ Generate Answer
+          </button>
+        </div>
+
+        <div id="sp-ai-result-box" style="margin-top: 10px; display: none;">
+          <label class="sp-label">Drafted Answer (Personalized from Profile):</label>
+          <textarea id="sp-ai-result" class="sp-textarea" rows="4"></textarea>
+          <div class="sp-flex-row" style="margin-top: 6px;">
+            <button class="sp-secondary-btn sp-flex-1" id="sp-btn-copy-essay">📋 Copy</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Quick Copy Drawer -->
+    <section class="sp-section sp-flex-1">
+      <div class="sp-section-header">
+        <h3>📋 Quick-Copy Field Drawer</h3>
+        <span class="sp-text-muted" style="font-size: 11px;">Click to copy any detail</span>
+      </div>
+      <div class="sp-drawer-list" id="sp-drawer-list">
+        <!-- Populated dynamically from profile -->
+      </div>
+    </section>
+  </div>
+
+  <script src="../lib/storage.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

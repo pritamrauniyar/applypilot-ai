@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ApplyPilot AI — Form Verification & Test Suite</title>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --bg: #f1f5f9;
+      --card: #ffffff;
+      --text: #0f172a;
+      --border: #cbd5e1;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 24px;
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    .header {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      color: #fff;
+      padding: 24px;
+      border-radius: 12px;
+      margin-bottom: 24px;
+    }
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .tab-btn {
+      padding: 10px 18px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .tab-btn.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .form-card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      margin-bottom: 24px;
+      display: none;
+    }
+    .form-card.active {
+      display: block;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+    input, select, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13.5px;
+      box-sizing: border-box;
+      font-family: inherit;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .event-logger {
+      background: #1e293b;
+      color: #38bdf8;
+      font-family: monospace;
+      padding: 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      max-height: 180px;
+      overflow-y: auto;
+      margin-top: 16px;
+    }
+    .banner {
+      background: #e0e7ff;
+      border-left: 4px solid #4f46e5;
+      padding: 12px 16px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🚀 ApplyPilot AI — Test & Verification Suite</h1>
+      <p>Simulating real-world applicant tracking systems (Greenhouse, Lever, Workday) to verify autofill and reactive state updates.</p>
+    </div>
+
+    <div class="banner">
+      💡 <strong>How to Test:</strong> When ApplyPilot AI is loaded in your browser, open this page and click the floating <strong>"ApplyPilot Fill"</strong> badge in the bottom-right corner or open the extension popup. Watch all fields instantly populate and register synthetic reactive events!
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('gh')">Greenhouse Mock Form</button>
+      <button class="tab-btn" onclick="switchTab('lever')">Lever Mock Form</button>
+      <button class="tab-btn" onclick="switchTab('workday')">Workday Mock Form</button>
+    </div>
+
+    <!-- 1. Greenhouse Mock -->
+    <div id="form-gh" class="form-card active">
+      <h2>Greenhouse Careers — Senior / SWE II Application</h2>
+      <p style="color: #64748b; margin-bottom: 20px;">Role: Software Engineer II (Core Platform)</p>
+
+      <form id="application_form">
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="first_name">First Name <span style="color:red">*</span></label>
+            <input type="text" id="first_name" name="first_name" autocomplete="given-name" required>
+          </div>
+          <div class="form-group">
+            <label for="last_name">Last Name <span style="color:red">*</span></label>
+            <input type="text" id="last_name" name="last_name" autocomplete="family-name" required>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="email">Email <span style="color:red">*</span></label>
+            <input type="email" id="email" name="email" autocomplete="email" required>
+          </div>
+          <div class="form-group">
+            <label for="phone">Phone <span style="color:red">*</span></label>
+            <input type="tel" id="phone" name="phone" autocomplete="tel" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="job_application_location">Location (City, State, Country)</label>
+          <input type="text" id="job_application_location" name="location" placeholder="e.g. San Francisco, CA">
+        </div>
+
+        <div class="form-group">
+          <label for="job_application_answers_attributes_0_text_value">LinkedIn Profile</label>
+          <input type="url" id="job_application_answers_attributes_0_text_value" name="job_application[answers_attributes][0][text_value]">
+        </div>
+
+        <div class="form-group">
+          <label for="job_application_answers_attributes_1_text_value">GitHub Profile / Website</label>
+          <input type="url" id="job_application_answers_attributes_1_text_value" name="job_application[answers_attributes][1][text_value]">
+        </div>
+
+        <div class="form-group">
+          <label for="job_application_answers_attributes_2_text_value">Are you legally authorized to work in the United States?</label>
+          <select id="job_application_answers_attributes_2_text_value">
+            <option value="">-- Please select --</option>
+            <option value="Yes">Yes</option>
+            <option value="No">No</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="job_application_answers_attributes_3_text_value">Will you now or in the future require sponsorship for employment visa status?</label>
+          <select id="job_application_answers_attributes_3_text_value">
+            <option value="">-- Please select --</option>
+            <option value="No">No</option>
+            <option value="Yes">Yes</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="position: relative;">
+          <label for="question_essay_challenge">Describe a technical challenge or complex system you designed at Uber or previous roles:</label>
+          <textarea id="question_essay_challenge" rows="4" placeholder="Type or click ✨ AI Draft to generate using your profile background..."></textarea>
+        </div>
+      </form>
+    </div>
+
+    <!-- 2. Lever Mock -->
+    <div id="form-lever" class="form-card">
+      <h2>Lever Careers — Software Engineer II</h2>
+      <p style="color: #64748b; margin-bottom: 20px;">Role: Software Engineer II (Backend Distributed Systems)</p>
+
+      <form id="lever-application">
+        <div class="form-group">
+          <label>Full Name <span style="color:red">*</span></label>
+          <input type="text" name="name" placeholder="Full name" required>
+        </div>
+        <div class="form-group">
+          <label>Email <span style="color:red">*</span></label>
+          <input type="email" name="email" placeholder="Email" required>
+        </div>
+        <div class="form-group">
+          <label>Phone <span style="color:red">*</span></label>
+          <input type="tel" name="phone" placeholder="Phone number" required>
+        </div>
+        <div class="form-group">
+          <label>Current Company</label>
+          <input type="text" name="org" placeholder="Current or most recent company">
+        </div>
+        <div class="form-group">
+          <label>LinkedIn URL</label>
+          <input type="url" name="urls[LinkedIn]" placeholder="https://linkedin.com/in/...">
+        </div>
+        <div class="form-group">
+          <label>GitHub URL</label>
+          <input type="url" name="urls[GitHub]" placeholder="https://github.com/...">
+        </div>
+        <div class="form-group" style="position: relative;">
+          <label>Why are you interested in joining our engineering team?</label>
+          <textarea name="comments" rows="3" placeholder="Tell us about yourself and why our mission aligns with your goals..."></textarea>
+        </div>
+      </form>
+    </div>
+
+    <!-- 3. Workday Mock -->
+    <div id="form-workday" class="form-card">
+      <h2>Workday Careers — Candidate Portal Simulation</h2>
+      <p style="color: #64748b; margin-bottom: 20px;">Testing Workday specific <code>data-automation-id</code> attributes.</p>
+
+      <form id="workday-application">
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Legal First Name</label>
+            <input type="text" data-automation-id="legalNameSection_firstName">
+          </div>
+          <div class="form-group">
+            <label>Legal Last Name</label>
+            <input type="text" data-automation-id="legalNameSection_lastName">
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" data-automation-id="email">
+          </div>
+          <div class="form-group">
+            <label>Phone Number</label>
+            <input type="tel" data-automation-id="phone-number">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Address Line 1</label>
+          <input type="text" data-automation-id="addressSection_addressLine1">
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label>City</label>
+            <input type="text" data-automation-id="addressSection_city">
+          </div>
+          <div class="form-group">
+            <label>Postal Code</label>
+            <input type="text" data-automation-id="addressSection_postalCode">
+          </div>
+        </div>
+        <div class="form-group" style="position: relative;">
+          <label>Additional Candidate Notes / Cover Letter</label>
+          <textarea data-automation-id="coverLetter" rows="3"></textarea>
+        </div>
+      </form>
+    </div>
+
+    <!-- Live Event Log -->
+    <h3>Reactive Event Dispatch Log</h3>
+    <div class="event-logger" id="event-log">
+      <div>[System] Event logger initialized. Waiting for input events...</div>
+    </div>
+  </div>
+
+  <script>
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.form-card').forEach(f => f.classList.remove('active'));
+
+      if (tab === 'gh') {
+        document.querySelector('.tab-btn:nth-child(1)').classList.add('active');
+        document.getElementById('form-gh').classList.add('active');
+      } else if (tab === 'lever') {
+        document.querySelector('.tab-btn:nth-child(2)').classList.add('active');
+        document.getElementById('form-lever').classList.add('active');
+      } else if (tab === 'workday') {
+        document.querySelector('.tab-btn:nth-child(3)').classList.add('active');
+        document.getElementById('form-workday').classList.add('active');
+      }
+    }
+
+    // Attach listeners to all inputs to log reactive events
+    const log = document.getElementById('event-log');
+    ['input', 'change'].forEach(evtType => {
+      document.addEventListener(evtType, (e) => {
+        if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) {
+          const entry = document.createElement('div');
+          const time = new Date().toLocaleTimeString();
+          const idOrName = e.target.id || e.target.name || e.target.getAttribute('data-automation-id') || 'field';
+          entry.textContent = `[${time}] Event '${evtType}' fired on <${e.target.tagName.toLowerCase()} id="${idOrName}"> -> Value: "${e.target.value?.slice(0, 35)}..."`;
+          log.prepend(entry);
+        }
+      });
+    });
+  </script>
+</body>
+</html>
