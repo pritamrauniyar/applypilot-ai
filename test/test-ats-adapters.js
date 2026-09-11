@@ -549,3 +549,75 @@ test('AtsAdapters: middleName matching vs fullName protection and nested work ex
   assert.strictEqual(dynRole1.matched, true);
   assert.strictEqual(dynRole1.value, "Nested description for job 2");
 });
+
+test('AtsAdapters: Multi-tier Section Index & Parent Scope Resolution (Work Experience 2, Education 2)', () => {
+  const profile = {
+    experience: {
+      items: [
+        { company: 'Google', title: 'Senior Engineer', description: 'Google bullets' },
+        { company: 'Stripe', title: 'Staff Engineer', description: 'Stripe bullets' }
+      ]
+    }
+  };
+
+  // 1. Heading extraction: "Work Experience 2"
+  const fakeElWithHeading = {
+    tagName: 'TEXTAREA',
+    getAttribute: () => null,
+    closest: (selector) => {
+      if (selector.includes('fieldset') || selector.includes('card') || selector.includes('experience')) {
+        return {
+          querySelector: (q) => ({ innerText: 'Work Experience 2 (Previous Role)' }),
+          querySelectorAll: () => []
+        };
+      }
+      return null;
+    }
+  };
+  const scope1 = AtsAdapters.detectParentScope(fakeElWithHeading, ['Role Description'], 0, profile);
+  assert.strictEqual(scope1, 'Work Experience 2');
+  const idx1 = AtsAdapters.resolveElementSectionIndex(fakeElWithHeading, 'experience', profile);
+  assert.strictEqual(idx1, 1);
+
+  // 2. Automation ID extraction: "workExperience-2"
+  const fakeElWithAutoId = {
+    tagName: 'INPUT',
+    getAttribute: (attr) => attr === 'data-automation-id' ? 'workExperience-2_jobTitle' : null,
+    closest: () => null
+  };
+  const scope2 = AtsAdapters.detectParentScope(fakeElWithAutoId, ['Job Title'], 0, profile);
+  assert.strictEqual(scope2, 'Work Experience 2');
+  const idx2 = AtsAdapters.resolveElementSectionIndex(fakeElWithAutoId, 'experience', profile);
+  assert.strictEqual(idx2, 1);
+
+  // 3. Name array notation: "experience[1].description"
+  const fakeElWithName = {
+    tagName: 'TEXTAREA',
+    getAttribute: (attr) => attr === 'name' ? 'experience[1].description' : null,
+    closest: () => null
+  };
+  const scope3 = AtsAdapters.detectParentScope(fakeElWithName, ['Role Description'], null, profile);
+  assert.strictEqual(scope3, 'Work Experience 2');
+  const idx3 = AtsAdapters.resolveElementSectionIndex(fakeElWithName, 'experience', profile);
+  assert.strictEqual(idx3, 1);
+
+  // 4. Sibling company correlation with profile (Card has input with value "Stripe")
+  const fakeElWithSiblingCompany = {
+    tagName: 'TEXTAREA',
+    getAttribute: (attr) => attr === 'data-automation-id' ? 'description' : null,
+    closest: () => ({
+      querySelector: (q) => {
+        if (q.includes('company')) return { value: 'Stripe Inc.' };
+        return null;
+      },
+      querySelectorAll: (q) => [
+        { value: 'Stripe Inc.' }
+      ]
+    })
+  };
+  const idx4 = AtsAdapters.resolveElementSectionIndex(fakeElWithSiblingCompany, 'experience', profile);
+  assert.strictEqual(idx4, 1);
+  const scope4 = AtsAdapters.detectParentScope(fakeElWithSiblingCompany, ['Role Description'], null, profile);
+  assert.strictEqual(scope4, 'Work Experience 2');
+});
+

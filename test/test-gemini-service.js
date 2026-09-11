@@ -382,6 +382,32 @@ test('GeminiService: answerOpenEndedQuestion, suggestFieldAnswer, and refineKnow
     });
     assert.ok(answer.includes("Uber scale"));
 
+    // 1b. answerOpenEndedQuestion for Work Experience 2 role description
+    let promptCaptured = '';
+    const origGen = GeminiService.generate;
+    GeminiService.generate = async (userPrompt, apiKey, systemPrompt) => {
+      promptCaptured = `${systemPrompt}\n${userPrompt}`;
+      return "Spearheaded Stripe billing platform improvements.";
+    };
+    try {
+      const exp2Answer = await GeminiService.answerOpenEndedQuestion({
+        question: "Role Description",
+        category: "experience",
+        parentScope: "Work Experience 2",
+        sectionIndex: 1,
+        targetCompany: "Stripe",
+        targetTitle: "Staff Software Engineer",
+        userProfile: DEFAULT_PROFILE,
+        apiKey: "test-key"
+      });
+      assert.strictEqual(exp2Answer, "Spearheaded Stripe billing platform improvements.");
+      assert.ok(promptCaptured.includes("Stripe"));
+      assert.ok(promptCaptured.includes("Staff Software Engineer"));
+      assert.ok(promptCaptured.includes("Work Experience 2"));
+    } finally {
+      GeminiService.generate = origGen;
+    }
+
     // 2. suggestFieldAnswer
     const suggestion = await GeminiService.suggestFieldAnswer({
       fieldLabel: "Preferred Cloud Platform",

@@ -443,11 +443,148 @@ var AtsAdapters = {
     }
   ],
 
-  // Universal Semantic Parent-Scope Detector (Work Experience, Education, Projects, References)
-  detectParentScope(el, textSignals = [], sectionIndex = 0) {
-    if (!el) return sectionIndex > 0 ? `Work Experience ${sectionIndex + 1}` : "Personal Information";
+  // Multi-tier Section Index Resolver for repeating application sections
+  resolveElementSectionIndex(el, category = "experience", profile = null) {
+    if (!el) return 0;
 
-    const container = el.closest ? el.closest('fieldset, [data-automation-id*="workExperience"], [data-automation-id*="education"], [data-automation-id*="experience"], .work-experience-item, .experience-section, .education-section, [data-testid*="experience"], [data-testid*="education"], .experience-card, .education-card, [role="group"]') : null;
+    // Tier 1: Explicit regex number extraction from heading, legend, container, name, id, or aria-label
+    const container = el.closest ? el.closest('fieldset, [data-automation-id*="workExperience"], [data-automation-id*="education"], [data-automation-id*="experience"], .work-experience-item, .experience-section, .education-section, [data-testid*="experience"], [data-testid*="education"], .experience-card, .education-card, [role="group"], .form-section, .card') : null;
+
+    let headingText = "";
+    if (container && container.querySelector) {
+      const legend = container.querySelector('legend, h1, h2, h3, h4, h5, .card-title, .section-title, [data-automation-id*="title"]');
+      if (legend) headingText = (legend.innerText || legend.textContent || "").trim();
+    }
+    if (!headingText && el.closest) {
+      let prev = el.previousElementSibling;
+      while (prev && !headingText) {
+        if (/^H[1-6]$/.test(prev.tagName) || (prev.classList && (prev.classList.contains('section-header') || prev.classList.contains('card-header')))) {
+          headingText = (prev.innerText || prev.textContent || '').trim();
+        }
+        prev = prev.previousElementSibling;
+      }
+    }
+
+    const autoId = (el.getAttribute && (el.getAttribute('data-automation-id') || '')) || '';
+    const containerAutoId = (container && container.getAttribute && container.getAttribute('data-automation-id')) || '';
+    const nameAttr = (el.getAttribute && (el.getAttribute('name') || '')) || '';
+    const idAttr = (el.getAttribute && (el.getAttribute('id') || '')) || '';
+    const ariaLabel = (el.getAttribute && (el.getAttribute('aria-label') || '')) || '';
+
+    // Tier 1a: Check human heading/legend text FIRST (1-based, e.g. "Work Experience 2", "Experience #2")
+    if (headingText) {
+      const heading1Based = headingText.match(/(?:work\s*experience|job|employment|experience|position|education|school|degree|project|reference)[^0-9\n\r]{0,15}#?\s*([1-9]\d*)(?:[-_.\s\]\)]|\b)/i);
+      if (heading1Based && heading1Based[1]) {
+        const num = parseInt(heading1Based[1], 10);
+        if (num >= 1 && num <= 20) return num - 1;
+      }
+    }
+
+    // Tier 1b: Check bracket/array index notation in name/id (0-based, e.g. experience[1], experiences[2])
+    const bracketMatch = `${nameAttr} ${idAttr}`.match(/(?:experience|education|project|job)s?[\[\._-]([0-9]+)[\]\._-]/i);
+    if (bracketMatch && bracketMatch[1]) {
+      const num = parseInt(bracketMatch[1], 10);
+      if (num >= 0 && num <= 20) return num;
+    }
+
+    // Tier 1c: Check Workday automation ID or trailing suffix (0-based, e.g. workExperienceSection-1)
+    const trailingAuto = `${containerAutoId} ${autoId}`.match(/[-_]([0-9]+)$/);
+    if (trailingAuto && trailingAuto[1]) {
+      const num = parseInt(trailingAuto[1], 10);
+      if (num > 0) return num;
+    }
+
+    // Tier 1d: Check remaining text signals for explicit 1-based numbering
+    const otherSignals = `${ariaLabel} ${autoId}`;
+    const explicit1Based = otherSignals.match(/(?:work\s*experience|job|employment|experience|position|education|school|degree|project|reference)[^0-9\n\r]{0,15}#?\s*([1-9]\d*)(?:[-_.\s\]\)]|\b)/i);
+    if (explicit1Based && explicit1Based[1]) {
+      const num = parseInt(explicit1Based[1], 10);
+      if (num >= 1 && num <= 20) return num - 1;
+    }
+
+    // Tier 2: Sibling Company / Title matching against Profile items
+    if (profile && category === "experience" && container && container.querySelectorAll) {
+      const compInput = container.querySelector('input[data-automation-id*="company"], input[name*="company" i], input[id*="company" i], input[placeholder*="company" i]');
+      const titleInput = container.querySelector('input[data-automation-id*="title" i], input[name*="title" i], input[id*="title" i], input[placeholder*="title" i], input[data-automation-id*="jobTitle" i]');
+      const compVal = compInput ? (compInput.value || "").trim().toLowerCase() : "";
+      const titleVal = titleInput ? (titleInput.value || "").trim().toLowerCase() : "";
+
+      if ((compVal || titleVal) && profile.experience?.items && profile.experience.items.length > 1) {
+        for (let i = 0; i < profile.experience.items.length; i++) {
+          const item = profile.experience.items[i];
+          const itemComp = (item.company || "").toLowerCase();
+          const itemTitle = (item.title || "").toLowerCase();
+          if (compVal && itemComp && (compVal.includes(itemComp) || itemComp.includes(compVal))) {
+            return i;
+          }
+          if (titleVal && itemTitle && (titleVal.includes(itemTitle) || itemTitle.includes(titleVal))) {
+            return i;
+          }
+        }
+      }
+    }
+
+    // Tier 3: Global Document Card Enumeration
+    if (typeof document !== 'undefined') {
+      const nodeContains = (parent, child) => {
+        if (!parent || !child) return false;
+        if (parent === child) return true;
+        if (typeof parent.contains === 'function') return parent.contains(child);
+        let cur = child.parentElement;
+        while (cur) {
+          if (cur === parent) return true;
+          cur = cur.parentElement;
+        }
+        return false;
+      };
+
+      const selector = category === "education"
+        ? '[data-automation-id*="education"], .education-item, .education-card, .education-section, [data-testid*="education"]'
+        : '[data-automation-id*="workExperience"], [data-automation-id*="experience"], .work-experience-item, .experience-card, .experience-section, [data-testid*="experience"]';
+
+      const allCards = Array.from(document.querySelectorAll(selector));
+      if (allCards.length > 1) {
+        const foundIdx = allCards.findIndex(c => nodeContains(c, el));
+        if (foundIdx >= 0) return foundIdx;
+      }
+
+      // If cards are fieldsets
+      if (container && container.tagName === 'FIELDSET') {
+        const allFieldsets = Array.from(document.querySelectorAll('fieldset'));
+        const fieldsetsWithSameCategory = allFieldsets.filter(fs => {
+          const txt = (fs.innerText || fs.textContent || '').toLowerCase();
+          return category === "education"
+            ? (txt.includes('education') || txt.includes('degree') || txt.includes('school'))
+            : (txt.includes('experience') || txt.includes('employer') || txt.includes('job'));
+        });
+        if (fieldsetsWithSameCategory.length > 1) {
+          const fsIdx = fieldsetsWithSameCategory.findIndex(fs => nodeContains(fs, el));
+          if (fsIdx >= 0) return fsIdx;
+        }
+      }
+
+      // Tier 4: Field Repetition Enumeration
+      if (el.tagName === 'TEXTAREA') {
+        const allTextareas = Array.from(document.querySelectorAll('textarea'));
+        const descTextareas = allTextareas.filter(t => {
+          const desc = `${t.getAttribute('data-automation-id') || ''} ${t.getAttribute('name') || ''} ${t.getAttribute('id') || ''} ${t.getAttribute('placeholder') || ''}`.toLowerCase();
+          return /description|responsibilities|duties|summary/i.test(desc);
+        });
+        if (descTextareas.length > 1) {
+          const tIdx = descTextareas.indexOf(el);
+          if (tIdx >= 0) return tIdx;
+        }
+      }
+    }
+
+    return 0;
+  },
+
+  // Universal Semantic Parent-Scope Detector (Work Experience, Education, Projects, References)
+  detectParentScope(el, textSignals = [], sectionIndex = null, profile = null) {
+    if (!el) return (sectionIndex !== null && sectionIndex > 0) ? `Work Experience ${sectionIndex + 1}` : "Personal Information";
+
+    const container = el.closest ? el.closest('fieldset, [data-automation-id*="workExperience"], [data-automation-id*="education"], [data-automation-id*="experience"], .work-experience-item, .experience-section, .education-section, [data-testid*="experience"], [data-testid*="education"], .experience-card, .education-card, [role="group"], .form-section, .card') : null;
 
     let headingText = "";
     if (container && container.querySelector) {
@@ -467,25 +604,47 @@ var AtsAdapters = {
       }
     }
 
+    const nameOrId = `${el.name || ''} ${el.id || ''} ${(el.getAttribute && el.getAttribute('name')) || ''} ${(el.getAttribute && el.getAttribute('id')) || ''}`;
     const autoId = (el.getAttribute && (el.getAttribute('data-automation-id') || '')) || '';
     const containerAutoId = (container && container.getAttribute && container.getAttribute('data-automation-id')) || '';
+    const containerNameOrId = container ? `${container.name || ''} ${container.id || ''} ${(container.getAttribute && container.getAttribute('name')) || ''} ${(container.getAttribute && container.getAttribute('id')) || ''}` : '';
     const signalsText = Array.isArray(textSignals) ? textSignals.join(' ') : String(textSignals || '');
-    const combined = `${headingText} ${autoId} ${containerAutoId} ${container?.className || ""} ${signalsText}`.toLowerCase();
+    const combined = `${headingText} ${nameOrId} ${autoId} ${containerNameOrId} ${containerAutoId} ${container?.className || ""} ${signalsText}`.toLowerCase();
 
-    if (combined.includes("work experience") || combined.includes("job experience") || combined.includes("employment history") || combined.includes("work history") || combined.includes("experience")) {
-      return `Work Experience ${sectionIndex + 1}`;
-    }
-    if (combined.includes("education") || combined.includes("academic") || combined.includes("school") || combined.includes("university") || combined.includes("degree")) {
-      return `Education ${sectionIndex + 1}`;
-    }
-    if (combined.includes("project")) {
-      return `Project ${sectionIndex + 1}`;
-    }
-    if (combined.includes("reference")) {
-      return `Reference ${sectionIndex + 1}`;
+    // Determine category
+    let category = "personal";
+    if (combined.includes("work experience") || combined.includes("job experience") || combined.includes("employment history") || combined.includes("work history") || combined.includes("experience") || combined.includes("role description") || combined.includes("job title") || combined.includes("employer") || combined.includes("responsibilities")) {
+      category = "experience";
+    } else if (combined.includes("education") || combined.includes("academic") || combined.includes("school") || combined.includes("university") || combined.includes("degree") || combined.includes("field of study") || combined.includes("gpa")) {
+      category = "education";
+    } else if (combined.includes("project")) {
+      category = "project";
+    } else if (combined.includes("reference")) {
+      category = "reference";
     }
 
-    return sectionIndex > 0 ? `Section ${sectionIndex + 1}` : "Personal Information";
+    if (category === "personal") {
+      return (sectionIndex !== null && sectionIndex > 0) ? `Section ${sectionIndex + 1}` : "Personal Information";
+    }
+
+    // Resolve accurate sectionIndex (0-based)
+    let resolvedIndex = (sectionIndex !== null && sectionIndex !== undefined && sectionIndex >= 0) ? sectionIndex : null;
+    if (resolvedIndex === null) {
+      resolvedIndex = this.resolveElementSectionIndex(el, category, profile);
+    } else {
+      // Even if sectionIndex was passed as 0, check if the element has an explicit number in heading/attributes
+      const explicitIdx = this.resolveElementSectionIndex(el, category, profile);
+      if (explicitIdx > 0 && resolvedIndex === 0) {
+        resolvedIndex = explicitIdx;
+      }
+    }
+
+    if (category === "experience") return `Work Experience ${resolvedIndex + 1}`;
+    if (category === "education") return `Education ${resolvedIndex + 1}`;
+    if (category === "project") return `Project ${resolvedIndex + 1}`;
+    if (category === "reference") return `Reference ${resolvedIndex + 1}`;
+
+    return resolvedIndex > 0 ? `Section ${resolvedIndex + 1}` : "Personal Information";
   },
 
   // Extract all text cues from an element
@@ -773,7 +932,7 @@ var AtsAdapters = {
 
           // Universal Hierarchical Parent-Context & Nested Details Resolution
           if (df.nestedDetails && typeof df.nestedDetails === 'object') {
-            const parentScope = descriptor.parentScope || this.detectParentScope(descriptor.element, descriptor.combinedLabels, sectionIndex);
+            const parentScope = this.detectParentScope(descriptor.element, descriptor.combinedLabels, sectionIndex, profile) || descriptor.parentScope;
 
             // 1. Direct Parent Scope lookup (e.g. df.nestedDetails["Work Experience 2"] or ["Education 1"])
             if (df.nestedDetails[parentScope] && typeof df.nestedDetails[parentScope] === 'object') {

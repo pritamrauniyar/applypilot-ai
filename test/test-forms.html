@@ -272,7 +272,7 @@
           </div>
         </div>
 
-        <h3 style="margin-top: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">Work Experience</h3>
+        <h3 style="margin-top: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">Work Experience 1 (Current Role)</h3>
         <div class="grid-2" data-automation-id="workExperienceSection">
           <div class="form-group">
             <label>Job Title <span style="color:red">*</span></label>
@@ -295,7 +295,33 @@
         </div>
         <div class="form-group" style="position: relative;">
           <label>Role Description</label>
-          <textarea data-automation-id="description" rows="3"></textarea>
+          <textarea data-automation-id="description" rows="3" placeholder="Describe current role duties..."></textarea>
+        </div>
+
+        <h3 style="margin-top: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">Work Experience 2 (Previous Role)</h3>
+        <div class="grid-2" data-automation-id="workExperienceSection-1">
+          <div class="form-group">
+            <label>Previous Job Title</label>
+            <input type="text" data-automation-id="jobTitle-1" name="experience[1].jobTitle" placeholder="e.g. Software Engineer">
+          </div>
+          <div class="form-group">
+            <label>Previous Company</label>
+            <input type="text" data-automation-id="company-1" name="experience[1].company" placeholder="e.g. TechCorp">
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Location</label>
+            <input type="text" data-automation-id="location-1" name="experience[1].location" placeholder="e.g. New York, NY">
+          </div>
+          <div class="form-group">
+            <label>From - To Dates</label>
+            <input type="text" data-automation-id="dates-1" name="experience[1].dates" placeholder="2021 - 2023">
+          </div>
+        </div>
+        <div class="form-group" style="position: relative;">
+          <label>Role Description</label>
+          <textarea data-automation-id="description-1" name="experience[1].description" rows="3" placeholder="Click ✨ AI Draft to generate previous role summary..."></textarea>
         </div>
 
         <h3 style="margin-top: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">Education</h3>

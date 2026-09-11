@@ -466,12 +466,62 @@
         const descriptor = adapters.getElementDescriptor(ta);
         const questionText = descriptor.combinedLabels || descriptor.placeholder || descriptor.name || "Job Application Question";
 
+        // Determine category, section index, and parent scope
+        let category = "personal";
+        const combinedCue = `${questionText} ${descriptor.name || ""} ${descriptor.id || ""} ${descriptor.dataAutomationId || ""}`.toLowerCase();
+        if (/role description|job description|responsibilities|work experience|employment|duties|job summary/i.test(combinedCue)) {
+          category = "experience";
+        } else if (/education|degree|school|university|academic/i.test(combinedCue)) {
+          category = "education";
+        }
+
+        const sectionIndex = adapters.resolveElementSectionIndex ? adapters.resolveElementSectionIndex(ta, category, cachedProfile) : 0;
+        const parentScope = adapters.detectParentScope ? adapters.detectParentScope(ta, [questionText], sectionIndex, cachedProfile) : (descriptor.parentScope || "Work Experience 1");
+
+        // Extract sibling fields from the card/container (e.g. Company name, Job Title)
+        const container = (ta.parentElement && ta.parentElement.closest ? ta.parentElement.closest('fieldset, [data-automation-id*="workExperience"], [data-automation-id*="experience"], .work-experience-item, .experience-card, .experience-section, [data-testid*="experience"], .form-section, .card, form') : null) || ta.parentElement;
+        let cardCompany = "";
+        let cardTitle = "";
+        if (container) {
+          const allInputs = Array.from(container.querySelectorAll ? container.querySelectorAll('input') : (container.children || []).filter(c => c.tagName === 'INPUT'));
+          const compEl = allInputs.find(inp => {
+            const attr = `${inp.getAttribute('data-automation-id') || ''} ${inp.getAttribute('name') || ''} ${inp.getAttribute('id') || ''} ${inp.getAttribute('placeholder') || ''}`.toLowerCase();
+            return attr.includes('company') || attr.includes('employer');
+          });
+          if (compEl && compEl.value) cardCompany = compEl.value.trim();
+
+          const titleEl = allInputs.find(inp => {
+            const attr = `${inp.getAttribute('data-automation-id') || ''} ${inp.getAttribute('name') || ''} ${inp.getAttribute('id') || ''} ${inp.getAttribute('placeholder') || ''}`.toLowerCase();
+            return attr.includes('title') || attr.includes('position') || attr.includes('role');
+          });
+          if (titleEl && titleEl.value) cardTitle = titleEl.value.trim();
+        }
+
+        // Correlate with candidate's cached profile experience items
+        let expItem = null;
+        if (category === "experience" && cachedProfile && cachedProfile.experience?.items) {
+          if (cachedProfile.experience.items.length > sectionIndex) {
+            expItem = cachedProfile.experience.items[sectionIndex];
+          } else if (cardCompany) {
+            expItem = cachedProfile.experience.items.find(it => it.company && cardCompany.toLowerCase().includes(it.company.toLowerCase()));
+          }
+        }
+
+        const targetCompany = cardCompany || (expItem ? expItem.company : "");
+        const targetTitle = cardTitle || (expItem ? expItem.title : "");
+
         btn.classList.add('ap-loading');
         btn.innerHTML = `<span>⏳ Writing...</span>`;
 
         safeSendMessage({
           action: "GENERATE_AI_ANSWER",
           question: questionText,
+          parentScope,
+          category,
+          sectionIndex,
+          targetCompany,
+          targetTitle,
+          experienceItem: expItem,
           jobTitle: document.title || "Software Engineer II"
         }, (res) => {
           btn.classList.remove('ap-loading');
@@ -479,15 +529,54 @@
 
           if (res && res.answer) {
             setNativeValue(ta, res.answer);
+
+            // Explicitly sync into cachedProfile experience item
+            if (category === "experience" && cachedProfile) {
+              cachedProfile.experience = cachedProfile.experience || { items: [] };
+              cachedProfile.experience.items = cachedProfile.experience.items || [];
+              while (cachedProfile.experience.items.length <= sectionIndex) {
+                cachedProfile.experience.items.push({
+                  id: `exp-${Date.now()}-${cachedProfile.experience.items.length}`,
+                  title: targetTitle || "",
+                  company: targetCompany || "",
+                  location: "",
+                  startDate: "",
+                  endDate: "",
+                  isCurrent: sectionIndex === 0,
+                  description: ""
+                });
+              }
+              cachedProfile.experience.items[sectionIndex].description = res.answer;
+              if (targetTitle && !cachedProfile.experience.items[sectionIndex].title) cachedProfile.experience.items[sectionIndex].title = targetTitle;
+              if (targetCompany && !cachedProfile.experience.items[sectionIndex].company) cachedProfile.experience.items[sectionIndex].company = targetCompany;
+            }
+
+            // Explicitly persist into Universal Hierarchical Storage for the resolved parentScope
+            safeSendMessage({
+              action: "SAVE_NESTED_FIELD",
+              parentScope,
+              childKey: "roleDescription",
+              value: res.answer,
+              category,
+              sectionIndex,
+              metadata: {
+                company: targetCompany,
+                title: targetTitle,
+                fieldLabel: questionText
+              }
+            });
+
             logAuditAction({
               actionType: "ai_suggest",
-              fieldLabel: questionText,
+              fieldLabel: `${parentScope} Role Description`,
               fieldNameOrId: descriptor.name || descriptor.id,
               matchedKey: "infield_ai_draft",
               valueSet: res.answer,
               status: "success",
-              details: "AI draft generated and inserted"
+              details: `AI draft generated specifically for ${parentScope} (${targetTitle ? targetTitle + ' at ' : ''}${targetCompany || 'Employer'})`
             });
+
+            showToast(`✓ AI Draft created for ${parentScope}!`);
           } else if (res && res.error) {
             alert(`ApplyPilot AI Notice: ${res.error}`);
           }
@@ -827,16 +916,25 @@
           el.dataset.apUserCleared = "true";
           el.dataset.apHadValue = "false";
 
-          // Calculate sectionIndex if inside experience/education/projects/references
-          let sectionIndex = 0;
-          const sectionContainer = el.closest('[data-automation-id*="workExperience"], [data-automation-id*="education"], .work-experience-item, .education-item, .experience-section, .education-section, [data-testid*="experience"], [data-testid*="education"], .experience-card, .education-card, fieldset');
-          if (sectionContainer && sectionContainer.parentElement) {
-            const siblings = Array.from(sectionContainer.parentElement.children).filter(c => c.matches && c.matches(sectionContainer.tagName));
-            const sIdx = siblings.indexOf(sectionContainer);
-            if (sIdx >= 0) sectionIndex = sIdx;
+          // Determine category and multi-tier sectionIndex
+          let category = "personal";
+          const combinedLbl = `${cleanLabel} ${descriptor.name || ""} ${descriptor.id || ""} ${descriptor.dataAutomationId || ""}`.toLowerCase();
+          if (/work experience|job experience|employment|experience|role description|job description|responsibilities|position/i.test(combinedLbl)) category = "experience";
+          else if (/education|academic|school|university|degree/i.test(combinedLbl)) category = "education";
+          else if (/project/i.test(combinedLbl)) category = "project";
+          else if (/reference/i.test(combinedLbl)) category = "reference";
+
+          let sectionIndex = adapters.resolveElementSectionIndex ? adapters.resolveElementSectionIndex(el, category, cachedProfile) : 0;
+          if (sectionIndex === 0) {
+            const sectionContainer = el.closest('[data-automation-id*="workExperience"], [data-automation-id*="education"], .work-experience-item, .education-item, .experience-section, .education-section, [data-testid*="experience"], [data-testid*="education"], .experience-card, .education-card, fieldset');
+            if (sectionContainer && sectionContainer.parentElement) {
+              const siblings = Array.from(sectionContainer.parentElement.children).filter(c => c.matches && c.matches(sectionContainer.tagName));
+              const sIdx = siblings.indexOf(sectionContainer);
+              if (sIdx >= 0) sectionIndex = sIdx;
+            }
           }
 
-          const parentScope = adapters.detectParentScope ? adapters.detectParentScope(el, [cleanLabel], sectionIndex) : (descriptor.parentScope || "Personal Information");
+          const parentScope = adapters.detectParentScope ? adapters.detectParentScope(el, [cleanLabel], sectionIndex, cachedProfile) : (descriptor.parentScope || "Personal Information");
 
           let childKey = "custom";
           const lowerLbl = cleanLabel.toLowerCase();
@@ -947,17 +1045,24 @@
         }
 
         // 3. Universal Hierarchical Parent-Context Saver
-        let sectionIndex = 0;
-        const sectionContainer = el.closest('[data-automation-id*="workExperience"], [data-automation-id*="education"], .work-experience-item, .education-item, .experience-section, .education-section, [data-testid*="experience"], [data-testid*="education"], .experience-card, .education-card, fieldset');
-        if (sectionContainer && sectionContainer.parentElement) {
-          const siblings = Array.from(sectionContainer.parentElement.children).filter(c => c.matches && c.matches(sectionContainer.tagName));
-          const sIdx = siblings.indexOf(sectionContainer);
-          if (sIdx >= 0) sectionIndex = sIdx;
+        let category = "personal";
+        const combinedFieldLbl = `${cleanLabel} ${descriptor.name || ""} ${descriptor.id || ""} ${descriptor.dataAutomationId || ""}`.toLowerCase();
+        if (/work experience|job experience|employment|experience|role description|job description|responsibilities|position|title|employer|company/i.test(combinedFieldLbl)) category = "experience";
+        else if (/education|academic|school|university|degree|major|field of study|gpa/i.test(combinedFieldLbl)) category = "education";
+        else if (/project/i.test(combinedFieldLbl)) category = "project";
+        else if (/reference/i.test(combinedFieldLbl)) category = "reference";
+
+        let sectionIndex = adapters.resolveElementSectionIndex ? adapters.resolveElementSectionIndex(el, category, cachedProfile) : 0;
+        if (sectionIndex === 0) {
+          const sectionContainer = el.closest('[data-automation-id*="workExperience"], [data-automation-id*="education"], .work-experience-item, .education-item, .experience-section, .education-section, [data-testid*="experience"], [data-testid*="education"], .experience-card, .education-card, fieldset');
+          if (sectionContainer && sectionContainer.parentElement) {
+            const siblings = Array.from(sectionContainer.parentElement.children).filter(c => c.matches && c.matches(sectionContainer.tagName));
+            const sIdx = siblings.indexOf(sectionContainer);
+            if (sIdx >= 0) sectionIndex = sIdx;
+          }
         }
 
-        const parentScope = adapters.detectParentScope ? adapters.detectParentScope(el, [cleanLabel], sectionIndex) : (descriptor.parentScope || "Personal Information");
-
-        let category = "personal";
+        const parentScope = adapters.detectParentScope ? adapters.detectParentScope(el, [cleanLabel], sectionIndex, cachedProfile) : (descriptor.parentScope || "Personal Information");
         if (parentScope.toLowerCase().includes("work experience") || parentScope.toLowerCase().includes("experience")) category = "experience";
         else if (parentScope.toLowerCase().includes("education")) category = "education";
         else if (parentScope.toLowerCase().includes("project")) category = "project";

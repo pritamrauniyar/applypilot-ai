@@ -151,6 +151,11 @@ class MockElement {
         const autoAttr = this.getAttribute('data-automation-id');
         if (!autoAttr || !autoAttr.toLowerCase().includes(target)) return false;
       }
+      if (s.includes('[data-testid*="')) {
+        const target = s.split('[data-testid*="')[1].split('"')[0].toLowerCase();
+        const testIdAttr = this.getAttribute('data-testid');
+        if (!testIdAttr || !testIdAttr.toLowerCase().includes(target)) return false;
+      }
 
       if (s.startsWith('#') && this.id !== s.slice(1)) return false;
       if (s.startsWith('.')) {
@@ -551,6 +556,52 @@ test('ContentEngine: In-field AI Assist, Review Card & Suggestions', async () =>
   // Wait for async handler
   await new Promise(r => setTimeout(r, 20));
   assert.strictEqual(ta.value, 'I am a passionate software engineer excited about this role.');
+
+  // Test Work Experience 2 In-field AI Draft
+  const card2 = document.createElement('div');
+  card2.setAttribute('data-automation-id', 'workExperienceSection-1');
+  const h3 = document.createElement('h3');
+  h3.innerText = 'Work Experience 2 (Previous Role)';
+  card2.appendChild(h3);
+
+  const comp2 = document.createElement('input');
+  comp2.setAttribute('data-automation-id', 'company-1');
+  comp2.value = 'Stripe';
+  card2.appendChild(comp2);
+
+  const title2 = document.createElement('input');
+  title2.setAttribute('data-automation-id', 'jobTitle-1');
+  title2.value = 'Backend Engineer';
+  card2.appendChild(title2);
+
+  const desc2 = document.createElement('textarea');
+  desc2.setAttribute('data-automation-id', 'description-1');
+  desc2.setAttribute('name', 'experience[1].description');
+  card2.appendChild(desc2);
+  document.body.appendChild(card2);
+
+  ContentEngine.attachInFieldAiButtons();
+  const btn2 = desc2.parentElement.querySelector('.ap-infield-ai-btn');
+  assert.ok(btn2);
+
+  messageResponses['GENERATE_AI_ANSWER'] = {
+    success: true,
+    answer: 'Architected Stripe payment orchestration pipelines.'
+  };
+
+  btn2.dispatchEvent(new MockEvent('click'));
+  await new Promise(r => setTimeout(r, 40));
+
+  const lastGenMsg = allSentMessages.find(m => m.action === 'GENERATE_AI_ANSWER' && m.parentScope === 'Work Experience 2');
+  assert.ok(lastGenMsg, 'GENERATE_AI_ANSWER was sent with parentScope Work Experience 2');
+  assert.strictEqual(lastGenMsg.sectionIndex, 1);
+  assert.strictEqual(lastGenMsg.targetCompany, 'Stripe');
+  assert.strictEqual(lastGenMsg.targetTitle, 'Backend Engineer');
+
+  const lastSaveMsg = allSentMessages.find(m => m.action === 'SAVE_NESTED_FIELD' && m.parentScope === 'Work Experience 2');
+  assert.ok(lastSaveMsg, 'SAVE_NESTED_FIELD was sent for Work Experience 2');
+  assert.strictEqual(lastSaveMsg.sectionIndex, 1);
+  assert.strictEqual(lastSaveMsg.childKey, 'roleDescription');
 
   // Test Review Card
   let approvedValue = null;
