@@ -70,6 +70,55 @@ test('AtsAdapters: ATS Portal Detection Flags (All 15 platforms)', () => {
   assert.strictEqual(AtsAdapters.detectPortalType('randomsite.com'), 'generic');
 });
 
+test('AtsAdapters: isJobApplicationPage site and page filtering', () => {
+  // 1. Non-job websites (MUST return false)
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://youtube.com/feed/trending'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://www.netflix.com/browse'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://www.reddit.com/r/webdev'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://twitter.com/home'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://x.com/home'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://www.facebook.com/messages'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://www.instagram.com/p/123'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://www.tiktok.com/@user'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://en.wikipedia.org/wiki/JavaScript'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://www.google.com/search?q=weather'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://www.amazon.com/dp/B08N5WRWNW'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://github.com/pritamrauniyar/applypilot-ai'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://chatgpt.com/c/123'), false);
+
+  // 2. Known ATS Portals (MUST return true)
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://boards.greenhouse.io/stripe/jobs/123'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://jobs.lever.co/netflix/456'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://uber.wd1.myworkdayjobs.com/Careers/job/R123'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://jobs.ashbyhq.com/scale/789'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://company.taleo.net/careersection/jobdetail.ftl'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://jobs.smartrecruiters.com/Acme/123'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://company.bamboohr.com/careers/99'), true);
+
+  // 3. Career Subdomains & URL Paths (MUST return true)
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://careers.google.com/jobs/results/'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://jobs.apple.com/en-us/details/123'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://amazon.jobs/en/jobs/456'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://company.com/careers/software-engineer'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://startup.io/jobs/openings'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://enterprise.org/apply/position/123'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('file:///c:/Project/ApplyPilot%20AI/test/test-forms.html'), true);
+
+  // 4. Custom DOM inspection for embedded forms
+  const mockDocWithResume = {
+    querySelector: (sel) => sel.includes('workExperience') ? null : null,
+    querySelectorAll: (sel) => sel.includes('file') ? [{ id: 'resume_upload', name: 'resume' }] : []
+  };
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://customcompany.com/join-our-team', mockDocWithResume), true);
+
+  const mockDocNonJob = {
+    querySelector: () => null,
+    querySelectorAll: () => []
+  };
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://randomblog.com/post-about-cats', mockDocNonJob), false);
+});
+
 test('AtsAdapters: extractTargetCompany from URL, domain, and title', () => {
   // 1. Workday subdomain extraction
   assert.strictEqual(AtsAdapters.extractTargetCompany('https://uber.wd1.myworkdayjobs.com/Careers').toLowerCase(), 'uber');

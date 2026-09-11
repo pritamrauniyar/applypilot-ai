@@ -944,6 +944,139 @@ var AtsAdapters = {
     return "generic";
   },
 
+  // Detect if current page is an applicant tracking system or career application form
+  isJobApplicationPage(url = "", doc = null) {
+    const targetUrl = String(url || (typeof window !== 'undefined' ? window.location?.href : "")).toLowerCase();
+    let hostname = "";
+    let pathname = "";
+    try {
+      if (targetUrl.startsWith("http://") || targetUrl.startsWith("https://")) {
+        const parsed = new URL(targetUrl);
+        hostname = parsed.hostname.toLowerCase();
+        pathname = parsed.pathname.toLowerCase();
+      } else {
+        hostname = (typeof window !== 'undefined' ? window.location?.hostname : "") || "";
+        pathname = (typeof window !== 'undefined' ? window.location?.pathname : "") || targetUrl;
+      }
+    } catch (e) {
+      hostname = (typeof window !== 'undefined' ? window.location?.hostname : "") || "";
+      pathname = targetUrl;
+    }
+
+    // 1. Explicit Exclusions: Non-job entertainment, video, media, social, messaging, and search platforms
+    const excludedHosts = [
+      "youtube.com", "youtu.be", "netflix.com", "twitch.tv", "spotify.com",
+      "reddit.com", "twitter.com", "x.com", "instagram.com", "facebook.com",
+      "tiktok.com", "pinterest.com", "wikipedia.org", "chatgpt.com", "claude.ai",
+      "github.com", "gitlab.com", "stackoverflow.com", "quora.com", "vimeo.com"
+    ];
+    for (const ex of excludedHosts) {
+      if (hostname === ex || hostname.endsWith("." + ex)) {
+        // Unless it's an explicit career subdomain like careers.youtube.com or jobs.netflix.com
+        if (!hostname.startsWith("careers.") && !hostname.startsWith("jobs.")) {
+          return false;
+        }
+      }
+    }
+
+    // General search and portal domains unless explicit careers subdomain/path
+    if (hostname === "google.com" || hostname.endsWith(".google.com") || hostname === "amazon.com" || hostname.endsWith(".amazon.com") || hostname.includes("bing.com") || hostname.includes("yahoo.com")) {
+      if (!hostname.startsWith("careers.") && !hostname.startsWith("jobs.") && !pathname.includes("/careers") && !pathname.includes("/jobs")) {
+        return false;
+      }
+    }
+
+    // 2. Known ATS Portals (Workday, Greenhouse, Lever, Ashby, Taleo, iCIMS, SmartRecruiters, etc.)
+    const portal = this.detectPortalType(hostname || targetUrl);
+    if (portal && portal !== "generic") {
+      return true;
+    }
+
+    // 3. Career Subdomains (e.g. careers.uber.com, jobs.apple.com, apply.workable.com)
+    if (
+      hostname.startsWith("careers.") ||
+      hostname.startsWith("career.") ||
+      hostname.startsWith("jobs.") ||
+      hostname.startsWith("job.") ||
+      hostname.startsWith("apply.") ||
+      hostname.startsWith("hiring.") ||
+      hostname.startsWith("talent.")
+    ) {
+      return true;
+    }
+
+    // 4. Career and Job Application URL Paths
+    const careerPathRegex = /\/(?:careers?|jobs?|apply|application|openings|positions|vacanc(?:y|ies)|job-detail|job-postings?)(?:[\/?#\-_\d]|$)/i;
+    if (careerPathRegex.test(pathname) || careerPathRegex.test(targetUrl)) {
+      return true;
+    }
+
+    // 5. Test/Simulation environment
+    if (targetUrl.includes("test-forms.html") || (hostname === "localhost" && (pathname.includes("job") || pathname.includes("career") || pathname.includes("apply") || pathname.includes("test-form")))) {
+      return true;
+    }
+
+    // 6. DOM Heuristics: Check document for actual job application indicators
+    const d = doc || (typeof document !== 'undefined' ? document : null);
+    if (d) {
+      // (a) ATS specific container attributes
+      if (d.querySelector && d.querySelector(
+        '[data-automation-id*="workExperience"], [data-automation-id*="education"], [data-automation-id*="application"], [data-automation-id*="candidate"], #application-form, .application-form, .job-application, form[action*="job"], form[action*="apply"], form[action*="career"], [class*="jobApplication"], [id*="jobApplication"]'
+      )) {
+        return true;
+      }
+
+      // (b) File upload for resume / CV
+      if (d.querySelectorAll) {
+        const fileInputs = Array.from(d.querySelectorAll('input[type="file"]'));
+        for (const fi of fileInputs) {
+          const desc = `${fi.id || ''} ${fi.name || ''} ${(fi.getAttribute && fi.getAttribute('aria-label')) || ''} ${(fi.getAttribute && fi.getAttribute('placeholder')) || ''}`.toLowerCase();
+          if (desc.includes("resume") || desc.includes("cv") || desc.includes("curriculum")) {
+            return true;
+          }
+        }
+      }
+
+      // (c) Form fields check: at least 2 fields matching job application cues (e.g. name + email + resume/work auth/experience/linkedin)
+      if (d.querySelectorAll) {
+        const inputs = Array.from(d.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), select, textarea'));
+        let matchedJobFields = 0;
+        let hasCareerSpecificField = false;
+
+        for (const el of inputs.slice(0, 30)) {
+          const desc = this.getElementDescriptor ? this.getElementDescriptor(el) : {};
+          const lbl = `${desc.combinedLabels || ''} ${desc.name || ''} ${desc.id || ''} ${desc.placeholder || ''}`.toLowerCase();
+
+          // Career specific cues
+          if (
+            lbl.includes("resume") || lbl.includes("curriculum vitae") ||
+            lbl.includes("work authorization") || lbl.includes("sponsorship") ||
+            lbl.includes("linkedin") || lbl.includes("portfolio") ||
+            lbl.includes("years of experience") || lbl.includes("expected salary") ||
+            lbl.includes("notice period") || lbl.includes("role description") ||
+            lbl.includes("graduation year") || lbl.includes("cover letter")
+          ) {
+            hasCareerSpecificField = true;
+            matchedJobFields++;
+          } else if (
+            lbl.includes("first name") || lbl.includes("last name") ||
+            lbl.includes("email") || lbl.includes("phone") ||
+            lbl.includes("degree") || lbl.includes("company") ||
+            lbl.includes("job title") || lbl.includes("school")
+          ) {
+            matchedJobFields++;
+          }
+
+          if (hasCareerSpecificField && matchedJobFields >= 2) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  },
+
   // Extract target employer company
   extractTargetCompany(contextUrl = "", pageTitle = "") {
     return extractTargetCompany(contextUrl, pageTitle);

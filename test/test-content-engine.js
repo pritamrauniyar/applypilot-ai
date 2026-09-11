@@ -594,6 +594,25 @@ test('ContentEngine: Floating Hub & Toasts', () => {
   closeBtn.dispatchEvent(new MockEvent('click'));
   assert.strictEqual(menu.classList.contains('ap-visible'), false);
 
+  // Test dismiss button removes hub
+  const hideBtn = hub.querySelector('#ap-btn-hide-hub');
+  assert.ok(hideBtn);
+  hideBtn.dispatchEvent(new MockEvent('click'));
+  assert.strictEqual(document.getElementById('applypilot-floating-hub'), null);
+
+  // Non-job site suppression test (e.g. YouTube)
+  global.window.__applypilot_testing = false;
+  const origHref = global.window.location.href;
+  global.window.location.href = 'https://www.youtube.com/watch?v=12345';
+  const suppressedHub = ContentEngine.createFloatingHub();
+  assert.strictEqual(suppressedHub, null);
+  assert.strictEqual(document.getElementById('applypilot-floating-hub'), null);
+
+  // Restore testing environment
+  global.window.location.href = origHref;
+  global.window.__applypilot_testing = true;
+  ContentEngine.createFloatingHub();
+
   ContentEngine.updateFloatingBadge(7);
   assert.strictEqual(document.getElementById('ap-badge-count').textContent, '7 Filled');
 

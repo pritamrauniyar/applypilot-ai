@@ -433,6 +433,12 @@
 
   // 5. In-Field AI Sparkle Assist for Textareas & Open-ended Questions
   function attachInFieldAiButtons() {
+    const adapters = getAtsAdapters();
+    if (adapters && typeof adapters.isJobApplicationPage === 'function') {
+      const isJobPage = adapters.isJobApplicationPage(window.location.href, document);
+      if (!isJobPage && !window.__applypilot_testing) return;
+    }
+
     const textareas = document.querySelectorAll('textarea');
     for (const ta of textareas) {
       if (ta.dataset.apAiAttached) continue;
@@ -631,6 +637,12 @@
 
   // 8. Floating Action Hub
   function createFloatingHub() {
+    const adapters = getAtsAdapters();
+    if (adapters && typeof adapters.isJobApplicationPage === 'function') {
+      const isJobPage = adapters.isJobApplicationPage(window.location.href, document);
+      if (!isJobPage && !window.__applypilot_testing) return null;
+    }
+
     if (floatingHubEl && !document.getElementById('applypilot-floating-hub')) {
       document.body.appendChild(floatingHubEl);
       return floatingHubEl;
@@ -673,6 +685,9 @@
             </svg>
             <span>Open ApplyPilot Side Panel</span>
           </button>
+          <button class="ap-action-btn" id="ap-btn-hide-hub" style="font-size: 11px; opacity: 0.85; margin-top: 4px;">
+            <span>✕ Dismiss widget on this page</span>
+          </button>
         </div>
         <div class="ap-menu-footer">
           <span>Smart Autofill Active</span>
@@ -694,6 +709,7 @@
     const trigger = floatingHubEl.querySelector('#ap-hub-trigger');
     const menu = floatingHubEl.querySelector('#ap-hub-menu');
     const closeBtn = floatingHubEl.querySelector('#ap-menu-close');
+    const hideBtn = floatingHubEl.querySelector('#ap-btn-hide-hub');
 
     trigger.addEventListener('click', () => {
       menu.classList.toggle('ap-visible');
@@ -702,6 +718,16 @@
     closeBtn.addEventListener('click', () => {
       menu.classList.remove('ap-visible');
     });
+
+    if (hideBtn) {
+      hideBtn.addEventListener('click', () => {
+        if (floatingHubEl) {
+          floatingHubEl.remove();
+          floatingHubEl = null;
+        }
+        showToast("ApplyPilot widget dismissed for this session");
+      });
+    }
 
     floatingHubEl.querySelector('#ap-btn-autofill').addEventListener('click', async () => {
       menu.classList.remove('ap-visible');
@@ -722,6 +748,7 @@
       menu.classList.remove('ap-visible');
       safeSendMessage({ action: "OPEN_SIDEPANEL" });
     });
+    return floatingHubEl;
   }
 
   function updateFloatingBadge(count) {
@@ -776,6 +803,10 @@
         if (!isExtensionValid()) return;
         const adapters = getAtsAdapters();
         if (!adapters) return;
+        if (typeof adapters.isJobApplicationPage === 'function') {
+          const isJobPage = adapters.isJobApplicationPage(window.location.href, document);
+          if (!isJobPage && !window.__applypilot_testing) return;
+        }
         await loadProfile();
 
         const descriptor = adapters.getElementDescriptor(el);
@@ -1043,6 +1074,11 @@
     };
 
     document.addEventListener('focus', (e) => {
+      const adapters = getAtsAdapters();
+      if (adapters && typeof adapters.isJobApplicationPage === 'function') {
+        const isJobPage = adapters.isJobApplicationPage(window.location.href, document);
+        if (!isJobPage && !window.__applypilot_testing) return;
+      }
       const el = e.target;
       if (el && el.matches && el.matches('input, select, textarea') && el.value && el.value.trim().length > 0) {
         el.dataset.apHadValue = "true";
@@ -1058,6 +1094,10 @@
     document.addEventListener('submit', () => {
       const adapters = getAtsAdapters();
       if (!adapters) return;
+      if (typeof adapters.isJobApplicationPage === 'function') {
+        const isJobPage = adapters.isJobApplicationPage(window.location.href, document);
+        if (!isJobPage && !window.__applypilot_testing) return;
+      }
       const allInputs = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), select, textarea');
       for (const inp of allInputs) {
         const desc = adapters.getElementDescriptor(inp);
@@ -1222,8 +1262,24 @@
     let timer = null;
     const observer = new MutationObserver(() => {
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        attachInFieldAiButtons();
+      timer = setTimeout(async () => {
+        const adapters = getAtsAdapters();
+        const isJobPage = adapters && typeof adapters.isJobApplicationPage === 'function'
+          ? adapters.isJobApplicationPage(window.location.href, document)
+          : false;
+
+        if (isJobPage) {
+          if (!cachedProfile) await loadProfile();
+          if (cachedProfile?.settings?.showFloatingBadge !== false) {
+            createFloatingHub();
+          }
+          attachInFieldAiButtons();
+        } else if (!window.__applypilot_testing) {
+          if (floatingHubEl && floatingHubEl.parentElement) {
+            floatingHubEl.remove();
+            floatingHubEl = null;
+          }
+        }
       }, 400);
     });
 
@@ -1264,10 +1320,17 @@
   // 13. Initialization
   if (typeof window !== 'undefined' && typeof document !== 'undefined' && !window.__applypilot_testing) {
     loadProfile().then((profile) => {
-      if (profile?.settings?.showFloatingBadge !== false) {
-        createFloatingHub();
+      const adapters = getAtsAdapters();
+      const isJobPage = adapters && typeof adapters.isJobApplicationPage === 'function'
+        ? adapters.isJobApplicationPage(window.location.href, document)
+        : false;
+
+      if (isJobPage) {
+        if (profile?.settings?.showFloatingBadge !== false) {
+          createFloatingHub();
+        }
+        attachInFieldAiButtons();
       }
-      attachInFieldAiButtons();
       attachFieldCaptureListeners();
       observeDynamicForms();
     });
