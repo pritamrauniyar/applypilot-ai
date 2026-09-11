@@ -325,3 +325,195 @@ test('Storage: chrome.storage.local environment paths and migrations', async () 
     delete global.chrome;
   }
 });
+
+test('Storage: handleUserClearedField and nested saveWorkExperienceRoleDescription', async (t) => {
+  // 1. Test Middle Name clearing
+  const prof = await StorageService.getProfile();
+  prof.personal.firstName = "Pritam";
+  prof.personal.lastName = "Rauniyar";
+  prof.personal.middleName = "Kumar";
+  prof.personal.fullName = "Pritam Kumar Rauniyar";
+  await StorageService.saveProfile(prof);
+
+  const clearRes = await StorageService.handleUserClearedField({
+    fieldLabel: "Middle Name",
+    fieldKey: "middlename",
+    fieldNameOrId: "legalnamesection_middlename"
+  });
+  assert.strictEqual(clearRes.success, true);
+  const updatedProf = await StorageService.getProfile();
+  assert.strictEqual(updatedProf.personal.middleName, "");
+  assert.strictEqual(updatedProf.personal.fullName, "Pritam Rauniyar");
+
+  // Verify fieldInteractionStats marked as skipped and predictedIgnored
+  const statKey = "middle_name";
+  assert.ok(updatedProf.fieldInteractionStats[statKey]);
+  assert.strictEqual(updatedProf.fieldInteractionStats[statKey].predictedIgnored, true);
+
+  // 2. Test saving nested Work Experience role descriptions
+  const descRes1 = await StorageService.saveWorkExperienceRoleDescription({
+    sectionIndex: 0,
+    roleDescription: "Architected distributed streaming services.",
+    company: "Uber",
+    title: "Senior Engineer"
+  });
+  assert.strictEqual(descRes1.success, true);
+
+  const descRes2 = await StorageService.saveWorkExperienceRoleDescription({
+    sectionIndex: 1,
+    roleDescription: "Engineered scalable backend microservices.",
+    company: "Google",
+    title: "Software Engineer"
+  });
+  assert.strictEqual(descRes2.success, true);
+
+  const finalProf = await StorageService.getProfile();
+  assert.strictEqual(finalProf.experience.items[0].description, "Architected distributed streaming services.");
+  assert.strictEqual(finalProf.experience.items[1].description, "Engineered scalable backend microservices.");
+
+  const dfRole = finalProf.dynamicFields.find(f => f.canonicalKey === "experience.role_descriptions");
+  assert.ok(dfRole);
+  assert.ok(dfRole.nestedDetails["Work Experience 1"]);
+  assert.ok(dfRole.nestedDetails["Work Experience 2"]);
+  assert.strictEqual(dfRole.nestedDetails["Work Experience 1"].roleDescription, "Architected distributed streaming services.");
+  assert.strictEqual(dfRole.nestedDetails["Work Experience 2"].roleDescription, "Engineered scalable backend microservices.");
+
+  // 3. Test clearing a role description for a specific section
+  await StorageService.handleUserClearedField({
+    fieldLabel: "Role Description",
+    fieldKey: "roledescription",
+    sectionIndex: 1
+  });
+  const afterClearProf = await StorageService.getProfile();
+  assert.strictEqual(afterClearProf.experience.items[1].description, "");
+  const dfAfter = afterClearProf.dynamicFields.find(f => f.canonicalKey === "experience.role_descriptions");
+  assert.strictEqual(dfAfter.nestedDetails["Work Experience 2"].roleDescription, "");
+  // Ensure Work Experience 1 remains intact
+  assert.strictEqual(dfAfter.nestedDetails["Work Experience 1"].roleDescription, "Architected distributed streaming services.");
+});
+
+test('Storage: Universal Hierarchical Parent-Context Engine (Parent Key + Child Key)', async () => {
+  // 1. Save nested Work Experience fields
+  await StorageService.saveNestedField({
+    parentScope: "Work Experience 1",
+    childKey: "title",
+    value: "Staff Software Engineer",
+    category: "experience",
+    sectionIndex: 0
+  });
+
+  await StorageService.saveNestedField({
+    parentScope: "Work Experience 1",
+    childKey: "company",
+    value: "Uber Technologies",
+    category: "experience",
+    sectionIndex: 0
+  });
+
+  await StorageService.saveNestedField({
+    parentScope: "Work Experience 2",
+    childKey: "title",
+    value: "Senior Systems Engineer",
+    category: "experience",
+    sectionIndex: 1
+  });
+
+  // 2. Save nested Education fields
+  await StorageService.saveNestedField({
+    parentScope: "Education 1",
+    childKey: "school",
+    value: "MNNIT Allahabad",
+    category: "education",
+    sectionIndex: 0
+  });
+
+  await StorageService.saveNestedField({
+    parentScope: "Education 1",
+    childKey: "degree",
+    value: "Bachelor of Technology",
+    category: "education",
+    sectionIndex: 0
+  });
+
+  await StorageService.saveNestedField({
+    parentScope: "Education 1",
+    childKey: "fieldOfStudy",
+    value: "Computer Science & Engineering",
+    category: "education",
+    sectionIndex: 0
+  });
+
+  await StorageService.saveNestedField({
+    parentScope: "Education 1",
+    childKey: "gpa",
+    value: "3.95",
+    category: "education",
+    sectionIndex: 0
+  });
+
+  // 3. Save nested Personal field (middleName)
+  await StorageService.saveNestedField({
+    parentScope: "Personal Information",
+    childKey: "middleName",
+    value: "Kumar",
+    category: "personal",
+    sectionIndex: 0
+  });
+
+  // 4. Save custom section fields (Project 1 & Reference 1)
+  await StorageService.saveNestedField({
+    parentScope: "Project 1",
+    childKey: "projectName",
+    value: "ApplyPilot AI",
+    category: "project",
+    sectionIndex: 0,
+    metadata: { role: "Creator & Lead Architect" }
+  });
+
+  await StorageService.saveNestedField({
+    parentScope: "Reference 1",
+    childKey: "referenceName",
+    value: "Dr. Jane Doe",
+    category: "reference",
+    sectionIndex: 0
+  });
+
+  // Verify Profile updates
+  const prof = await StorageService.getProfile();
+  assert.strictEqual(prof.experience.items[0].title, "Staff Software Engineer");
+  assert.strictEqual(prof.experience.items[0].company, "Uber Technologies");
+  assert.strictEqual(prof.experience.items[1].title, "Senior Systems Engineer");
+  assert.strictEqual(prof.education.items[0].school, "MNNIT Allahabad");
+  assert.strictEqual(prof.education.items[0].degree, "Bachelor of Technology");
+  assert.strictEqual(prof.education.items[0].fieldOfStudy, "Computer Science & Engineering");
+  assert.strictEqual(prof.education.items[0].gpa, "3.95");
+  assert.strictEqual(prof.personal.middleName, "Kumar");
+  assert.strictEqual(prof.personal.fullName, "Pritam Kumar Rauniyar");
+
+  // Verify dynamicFields nested stores
+  const dfProj = prof.dynamicFields.find(f => f.label === "Project 1");
+  assert.ok(dfProj);
+  assert.strictEqual(dfProj.nestedDetails.projectName, "ApplyPilot AI");
+  assert.deepStrictEqual(dfProj.nestedDetails.projectName_meta, { role: "Creator & Lead Architect" });
+
+  const dfRef = prof.dynamicFields.find(f => f.label === "Reference 1");
+  assert.ok(dfRef);
+  assert.strictEqual(dfRef.nestedDetails.referenceName, "Dr. Jane Doe");
+
+  // 5. Test clearing specific nested keys
+  await StorageService.handleUserClearedField({
+    parentScope: "Project 1",
+    childKey: "projectName"
+  });
+
+  await StorageService.handleUserClearedField({
+    parentScope: "Personal Information",
+    childKey: "middleName"
+  });
+
+  const profAfterClear = await StorageService.getProfile();
+  const dfProjAfter = profAfterClear.dynamicFields.find(f => f.label === "Project 1");
+  assert.strictEqual(dfProjAfter.nestedDetails.projectName, "");
+  assert.strictEqual(profAfterClear.personal.middleName, "");
+  assert.strictEqual(profAfterClear.personal.fullName, "Pritam Rauniyar");
+});

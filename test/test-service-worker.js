@@ -386,7 +386,33 @@ test('ServiceWorker: onMessage Message Routing & Actions', async () => {
     GeminiService.parseResumeFile = origParseFile;
   }
 
-  // 15. Unknown action & Error in handler
+  // 15. SAVE_NESTED_FIELD, SAVE_WORK_EXPERIENCE_FIELD & USER_CLEARED_FIELD
+  const saveNestedRes = await sendMessage({
+    action: 'SAVE_NESTED_FIELD',
+    parentScope: 'Education 1',
+    childKey: 'degree',
+    value: 'Master of Science',
+    category: 'education',
+    sectionIndex: 0
+  });
+  assert.strictEqual(saveNestedRes.success, true);
+
+  const saveWorkRes = await sendMessage({
+    action: 'SAVE_WORK_EXPERIENCE_FIELD',
+    sectionIndex: 0,
+    roleDescription: 'Developed low latency pipelines'
+  });
+  assert.strictEqual(saveWorkRes.success, true);
+
+  const clearFieldRes = await sendMessage({
+    action: 'USER_CLEARED_FIELD',
+    parentScope: 'Education 1',
+    childKey: 'degree',
+    sectionIndex: 0
+  });
+  assert.strictEqual(clearFieldRes.success, true);
+
+  // 16. Unknown action & Error in handler
   const unknownRes = await sendMessage({ action: 'UNKNOWN_ACTION_XYZ' });
   assert.strictEqual(unknownRes.error, 'Unknown action');
 

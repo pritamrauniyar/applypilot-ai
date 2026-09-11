@@ -4,8 +4,8 @@
 
 [![Manifest V3](https://img.shields.io/badge/Chrome%20Extension-Manifest%20V3-blue.svg?style=for-the-badge&logo=googlechrome)](https://developer.chrome.com/docs/extensions/mv3/intro/)
 [![Google Gemini API](https://img.shields.io/badge/AI-Google%20Gemini%203%20Flash-4285F4.svg?style=for-the-badge&logo=googlegemini)](https://ai.google.dev/)
-[![Test Coverage](https://img.shields.io/badge/Test%20Coverage-97.65%25%20Line%20Coverage-success.svg?style=for-the-badge&logo=node.js)](test/)
-[![Tests Passing](https://img.shields.io/badge/Tests-51%2F51%20Passed%20(100%25)-brightgreen.svg?style=for-the-badge&logo=checkmarx)](test/)
+[![Test Coverage](https://img.shields.io/badge/Test%20Coverage-96.94%25%20Line%20Coverage-success.svg?style=for-the-badge&logo=node.js)](test/)
+[![Tests Passing](https://img.shields.io/badge/Tests-54%2F54%20Passed%20(100%25)-brightgreen.svg?style=for-the-badge&logo=checkmarx)](test/)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local%20First-orange.svg?style=for-the-badge&logo=privacy)]()
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero%20NPM%20Bloat-purple.svg?style=for-the-badge)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
@@ -166,6 +166,18 @@ During real-world benchmarking across enterprise ATS platforms, several key tech
 ### 6. Zero-Dependency In-Browser PDF Stream Extractor
 - **Problem**: Bundling full PDF parsing libraries like `pdf.js` inflates extension size by several megabytes, violating Chrome Web Store best practices and consuming memory.
 - **Solution**: Authored `lib/pdf-extractor.js` (pure vanilla JavaScript with native `zlib` / `DecompressionStream`). It directly decompresses PDF Flate streams, parses font encodings, extracts text kerning arrays (`TJ` / `Tj`), and handles octal escapes in **under 15KB**.
+
+### 7. Universal Hierarchical Parent-Context Engine (Parent Key + Child Key)
+- **Problem**: Ambiguous or repeating sub-fields (e.g., `roleDescription`, `title`, `company`, `school`, `degree`, `startDate`, `endDate`) across repeated sections (`Work Experience 1..N`, `Education 1..N`, `Projects 1..N`) can cause collisions, cross-section overwrites, or generic matching errors.
+- **Solution**: Implemented a **Universal Hierarchical Scope Engine**. The content engine detects the surrounding semantic container (`detectParentScope`), associates every modified or matched child field with its parent (`parentScope` + `childKey`), and stores values under partitioned sub-keys (`dynamicFields.nestedDetails[parentScope][childKey]`) while synchronizing sequential item arrays (`experience.items[i]`, `education.items[i]`).
+
+### 8. Persistent Memory for User-Cleared Fields
+- **Problem**: When a user completely deletes an autofilled value (such as clearing an erroneously matched Middle Name or removing an unwanted answer), standard change listeners ignore empty strings, causing the extension to stubbornly re-fill the removed text on subsequent visits.
+- **Solution**: Engineered a real-time erasure detection interceptor (`handleUserClearedField`). When an autofilled or previously populated field is emptied, the engine captures the blank state, immediately clears the corresponding key from persistent storage (`profile.personal.middleName`, `nestedDetails`, `learnedMemory`), records a skipped field interaction, and increments predictive ignore confidence so it is never filled again.
+
+### 9. Resume Objective & Role Description Boundary Isolation
+- **Problem**: Multi-page resumes frequently contain career summaries or objectives at the top that naive parsers dump into the first work experience's `roleDescription` or `jobDescription`.
+- **Solution**: Enforced strict boundary rules in the Gemini parsing schema and normalization layer. General candidate objectives map exclusively to `experience.headline`. If a specific company role does not contain explicit work bullet points in the resume, its `description` is strictly left as an empty string (`""`), allowing the candidate to fill it on demand with automated hierarchical persistence.
 
 ---
 

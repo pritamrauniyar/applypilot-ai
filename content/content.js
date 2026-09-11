@@ -770,7 +770,6 @@
 
       const rawVal = el.type === 'checkbox' ? (el.checked ? "Yes" : "No") : el.value;
       const val = typeof rawVal === 'string' ? rawVal.trim() : rawVal;
-      if (!val || val.length === 0) return;
 
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(async () => {
@@ -785,7 +784,108 @@
 
         const cleanLabel = label.replace(/\*/g, '').replace(/\s+/g, ' ').trim();
 
-        // Check if user is correcting an autofilled value
+        // 1. Check if user completely removed/cleared an autofilled value or emptied a previously filled field
+        const hadPreviousValue = el.dataset.apAutofilled === "true" || el.dataset.apHadValue === "true" || !!el.dataset.apAutofillVal;
+        if ((!val || val.length === 0) && hadPreviousValue) {
+          const originalVal = el.dataset.apAutofillVal || "";
+          const targetCompany = adapters.extractTargetCompany ? adapters.extractTargetCompany(window.location.href, document.title) : "";
+
+          // Mark element as cleared
+          el.dataset.apAutofilled = "false";
+          el.dataset.apAutofillVal = "";
+          el.dataset.apUserCleared = "true";
+          el.dataset.apHadValue = "false";
+
+          // Calculate sectionIndex if inside experience/education/projects/references
+          let sectionIndex = 0;
+          const sectionContainer = el.closest('[data-automation-id*="workExperience"], [data-automation-id*="education"], .work-experience-item, .education-item, .experience-section, .education-section, [data-testid*="experience"], [data-testid*="education"], .experience-card, .education-card, fieldset');
+          if (sectionContainer && sectionContainer.parentElement) {
+            const siblings = Array.from(sectionContainer.parentElement.children).filter(c => c.matches && c.matches(sectionContainer.tagName));
+            const sIdx = siblings.indexOf(sectionContainer);
+            if (sIdx >= 0) sectionIndex = sIdx;
+          }
+
+          const parentScope = adapters.detectParentScope ? adapters.detectParentScope(el, [cleanLabel], sectionIndex) : (descriptor.parentScope || "Personal Information");
+
+          let childKey = "custom";
+          const lowerLbl = cleanLabel.toLowerCase();
+          if (lowerLbl.includes("middle name") || (descriptor.name && descriptor.name.includes("middlename")) || (descriptor.id && descriptor.id.includes("middlename"))) childKey = "middleName";
+          else if (/role description|job description|responsibilities|summary of duties/i.test(lowerLbl)) childKey = "roleDescription";
+          else if (/job title|title|position|role/i.test(lowerLbl)) childKey = "title";
+          else if (/company|employer|organization/i.test(lowerLbl)) childKey = "company";
+          else if (/location|city/i.test(lowerLbl)) childKey = "location";
+          else if (/start date|from date|begin date/i.test(lowerLbl)) childKey = "startDate";
+          else if (/end date|to date/i.test(lowerLbl)) childKey = "endDate";
+          else if (/school|university|college|institution/i.test(lowerLbl)) childKey = "school";
+          else if (/degree/i.test(lowerLbl)) childKey = "degree";
+          else if (/major|field of study/i.test(lowerLbl)) childKey = "fieldOfStudy";
+          else if (/graduation year|year of graduation/i.test(lowerLbl)) childKey = "graduationYear";
+          else if (/gpa|grade/i.test(lowerLbl)) childKey = "gpa";
+          else childKey = descriptor.name || descriptor.id || cleanLabel.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+          // Clear local cache immediately
+          if (cachedProfile) {
+            if (childKey === "middleName") {
+              if (cachedProfile.personal) cachedProfile.personal.middleName = "";
+            }
+            if (cachedProfile.learnedMemory) {
+              cachedProfile.learnedMemory = cachedProfile.learnedMemory.filter(m => m && m.fieldLabel && m.fieldLabel.toLowerCase().trim() !== cleanLabel.toLowerCase());
+            }
+          }
+
+          // Tell service worker to clear this field in persistent storage
+          safeSendMessage({
+            action: "USER_CLEARED_FIELD",
+            fieldLabel: el.dataset.apAutofillLabel || cleanLabel,
+            fieldKey: childKey,
+            fieldNameOrId: descriptor.name || descriptor.id || "",
+            parentScope,
+            childKey,
+            sectionIndex
+          });
+
+          // Queue background sync item
+          safeSendMessage({
+            action: "QUEUE_BACKGROUND_SYNC",
+            item: {
+              type: "user_cleared_field",
+              fieldLabel: el.dataset.apAutofillLabel || cleanLabel,
+              fieldNameOrId: descriptor.name || descriptor.id,
+              originalValue: originalVal,
+              correctedValue: "",
+              targetCompany,
+              url: window.location.href,
+              pageTitle: document.title
+            }
+          });
+
+          // Record skipped interaction for predictive ignore
+          safeSendMessage({
+            action: "RECORD_FIELD_INTERACTION",
+            fieldLabel: cleanLabel,
+            filled: false,
+            value: "",
+            isRequired: descriptor.isRequired
+          });
+
+          logAuditAction({
+            actionType: "user_cleared_field",
+            fieldLabel: cleanLabel,
+            fieldNameOrId: descriptor.name || descriptor.id,
+            matchedKey: cleanLabel,
+            valueSet: "",
+            status: "success",
+            details: `User cleared field in ${parentScope}: "${originalVal}" -> ""`
+          });
+
+          showToast(`✓ Remembered: Left "${cleanLabel.slice(0, 24)}" blank`);
+          return;
+        }
+
+        // If val is empty and wasn't autofilled or previously filled, nothing to save or record
+        if (!val || val.length === 0) return;
+
+        // 2. Check if user is correcting an autofilled value
         if (el.dataset.apAutofilled === "true" && el.dataset.apAutofillVal && el.dataset.apAutofillVal !== val) {
           const targetCompany = adapters.extractTargetCompany ? adapters.extractTargetCompany(window.location.href, document.title) : "";
           safeSendMessage({
@@ -815,6 +915,97 @@
           showToast(`✓ Correction recorded for background AI refinement`);
         }
 
+        // 3. Universal Hierarchical Parent-Context Saver
+        let sectionIndex = 0;
+        const sectionContainer = el.closest('[data-automation-id*="workExperience"], [data-automation-id*="education"], .work-experience-item, .education-item, .experience-section, .education-section, [data-testid*="experience"], [data-testid*="education"], .experience-card, .education-card, fieldset');
+        if (sectionContainer && sectionContainer.parentElement) {
+          const siblings = Array.from(sectionContainer.parentElement.children).filter(c => c.matches && c.matches(sectionContainer.tagName));
+          const sIdx = siblings.indexOf(sectionContainer);
+          if (sIdx >= 0) sectionIndex = sIdx;
+        }
+
+        const parentScope = adapters.detectParentScope ? adapters.detectParentScope(el, [cleanLabel], sectionIndex) : (descriptor.parentScope || "Personal Information");
+
+        let category = "personal";
+        if (parentScope.toLowerCase().includes("work experience") || parentScope.toLowerCase().includes("experience")) category = "experience";
+        else if (parentScope.toLowerCase().includes("education")) category = "education";
+        else if (parentScope.toLowerCase().includes("project")) category = "project";
+        else if (parentScope.toLowerCase().includes("reference")) category = "reference";
+
+        let childKey = "custom";
+        const lowerLbl = cleanLabel.toLowerCase();
+        if (lowerLbl.includes("middle name") || (descriptor.name && descriptor.name.includes("middlename")) || (descriptor.id && descriptor.id.includes("middlename"))) childKey = "middleName";
+        else if (/role description|job description|responsibilities|summary of duties/i.test(lowerLbl)) childKey = "roleDescription";
+        else if (/job title|title|position|role/i.test(lowerLbl)) childKey = "title";
+        else if (/company|employer|organization/i.test(lowerLbl)) childKey = "company";
+        else if (/location|city/i.test(lowerLbl)) childKey = "location";
+        else if (/start date|from date|begin date/i.test(lowerLbl)) childKey = "startDate";
+        else if (/end date|to date/i.test(lowerLbl)) childKey = "endDate";
+        else if (/school|university|college|institution/i.test(lowerLbl)) childKey = "school";
+        else if (/degree/i.test(lowerLbl)) childKey = "degree";
+        else if (/major|field of study/i.test(lowerLbl)) childKey = "fieldOfStudy";
+        else if (/graduation year|year of graduation/i.test(lowerLbl)) childKey = "graduationYear";
+        else if (/gpa|grade/i.test(lowerLbl)) childKey = "gpa";
+        else childKey = descriptor.name || descriptor.id || cleanLabel.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+        // Always save into Universal Hierarchical Storage (parentScope + childKey)
+        safeSendMessage({
+          action: "SAVE_NESTED_FIELD",
+          parentScope,
+          childKey,
+          value: val,
+          category,
+          sectionIndex,
+          metadata: {
+            fieldLabel: cleanLabel,
+            fieldName: descriptor.name || "",
+            fieldId: descriptor.id || ""
+          }
+        }, (res) => {
+          if (cachedProfile) {
+            if (category === "experience") {
+              cachedProfile.experience = cachedProfile.experience || { items: [] };
+              cachedProfile.experience.items = cachedProfile.experience.items || [];
+              while (cachedProfile.experience.items.length <= sectionIndex) {
+                cachedProfile.experience.items.push({
+                  id: `exp-${Date.now()}-${cachedProfile.experience.items.length}`,
+                  title: "", company: "", location: "", startDate: "", endDate: "", isCurrent: false, description: ""
+                });
+              }
+              if (childKey === "roleDescription" || childKey === "description") {
+                cachedProfile.experience.items[sectionIndex].description = val;
+              } else if (childKey in cachedProfile.experience.items[sectionIndex]) {
+                cachedProfile.experience.items[sectionIndex][childKey] = val;
+              }
+            } else if (category === "education") {
+              cachedProfile.education = cachedProfile.education || { items: [] };
+              cachedProfile.education.items = cachedProfile.education.items || [];
+              while (cachedProfile.education.items.length <= sectionIndex) {
+                cachedProfile.education.items.push({
+                  id: `edu-${Date.now()}-${cachedProfile.education.items.length}`,
+                  school: "", degree: "", fieldOfStudy: "", graduationYear: "", gpa: ""
+                });
+              }
+              if (childKey in cachedProfile.education.items[sectionIndex]) {
+                cachedProfile.education.items[sectionIndex][childKey] = val;
+              }
+            } else if (childKey === "middleName") {
+              if (cachedProfile.personal) cachedProfile.personal.middleName = val;
+            }
+          }
+
+          logAuditAction({
+            actionType: "manual_entry",
+            fieldLabel: `${parentScope} - ${cleanLabel}`,
+            fieldNameOrId: descriptor.name || descriptor.id,
+            matchedKey: `${parentScope}.${childKey}`,
+            valueSet: val,
+            status: "success",
+            details: `User saved hierarchical value for [${parentScope} -> ${childKey}]`
+          });
+          showToast(`✓ Remembered: ${parentScope} -> ${cleanLabel.slice(0, 20)}`);
+        });
+
         // Record interaction for predictive feedback loop
         safeSendMessage({
           action: "RECORD_FIELD_INTERACTION",
@@ -824,43 +1015,42 @@
           isRequired: descriptor.isRequired
         });
 
-        // Save into learned memory in background safely
-        safeSendMessage({
-          action: "SAVE_LEARNED_FIELD",
-          fieldData: {
-            fieldLabel: cleanLabel,
-            answer: val,
-            fieldType: descriptor.tag,
-            keywords: [
-              cleanLabel.toLowerCase(),
-              descriptor.name,
-              descriptor.id,
-              descriptor.dataAutomationId
-            ].filter(Boolean)
-          }
-        }, (res) => {
-          if (res && res.success && res.item) {
-            if (cachedProfile) {
+        // If it's a general personal field, also learn it for global fallback
+        if (category === "personal" && childKey !== "middleName") {
+          safeSendMessage({
+            action: "SAVE_LEARNED_FIELD",
+            fieldData: {
+              fieldLabel: cleanLabel,
+              answer: val,
+              fieldType: descriptor.tag,
+              keywords: [
+                cleanLabel.toLowerCase(),
+                descriptor.name,
+                descriptor.id,
+                descriptor.dataAutomationId
+              ].filter(Boolean)
+            }
+          }, (res) => {
+            if (res && res.success && res.item && cachedProfile) {
               cachedProfile.learnedMemory = cachedProfile.learnedMemory || [];
               const idx = cachedProfile.learnedMemory.findIndex(m => m && m.fieldLabel && m.fieldLabel.toLowerCase() === cleanLabel.toLowerCase());
               if (idx >= 0) cachedProfile.learnedMemory[idx] = res.item;
               else cachedProfile.learnedMemory.unshift(res.item);
             }
-            logAuditAction({
-              actionType: "manual_entry",
-              fieldLabel: cleanLabel,
-              fieldNameOrId: descriptor.name || descriptor.id,
-              matchedKey: cleanLabel,
-              valueSet: val,
-              status: "success",
-              details: "User input captured and learned"
-            });
-            showToast(`✓ Remembered: "${cleanLabel.slice(0, 24)}"`);
-          }
-        });
+          });
+        }
       }, 600);
     };
 
+    document.addEventListener('focus', (e) => {
+      const el = e.target;
+      if (el && el.matches && el.matches('input, select, textarea') && el.value && el.value.trim().length > 0) {
+        el.dataset.apHadValue = "true";
+        if (!el.dataset.apAutofillVal) {
+          el.dataset.apAutofillVal = el.value.trim();
+        }
+      }
+    }, true);
     document.addEventListener('change', handleFieldChange, true);
     document.addEventListener('blur', handleFieldChange, true);
 

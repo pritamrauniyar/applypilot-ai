@@ -212,6 +212,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   function populateForm(p) {
     // Personal
     document.getElementById('prof-first-name').value = p.personal?.firstName || "";
+    const midEl = document.getElementById('prof-middle-name');
+    if (midEl) midEl.value = p.personal?.middleName || "";
     document.getElementById('prof-last-name').value = p.personal?.lastName || "";
     document.getElementById('prof-email').value = p.personal?.email || "";
     document.getElementById('prof-phone').value = p.personal?.phone || "";
@@ -288,11 +290,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     });
 
+    const firstName = document.getElementById('prof-first-name').value.trim();
+    const middleName = document.getElementById('prof-middle-name') ? document.getElementById('prof-middle-name').value.trim() : (activeProfile.personal?.middleName || "");
+    const lastName = document.getElementById('prof-last-name').value.trim();
+    const fullNameParts = [firstName, middleName, lastName].filter(Boolean);
+
     activeProfile.personal = {
       ...activeProfile.personal,
-      firstName: document.getElementById('prof-first-name').value.trim(),
-      lastName: document.getElementById('prof-last-name').value.trim(),
-      fullName: `${document.getElementById('prof-first-name').value.trim()} ${document.getElementById('prof-last-name').value.trim()}`.trim(),
+      firstName,
+      middleName,
+      lastName,
+      fullName: fullNameParts.length > 0 ? fullNameParts.join(" ") : `${firstName} ${lastName}`.trim(),
       email: document.getElementById('prof-email').value.trim(),
       phone: document.getElementById('prof-phone').value.trim(),
       address: document.getElementById('prof-address').value.trim(),
@@ -757,6 +765,46 @@ document.addEventListener('DOMContentLoaded', async () => {
       activeProfile.experience = { ...activeProfile.experience, ...parsed.experience };
       if (Array.isArray(parsed.experience.items)) {
         activeProfile.experience.items = parsed.experience.items;
+
+        // Synchronize nested role descriptions into Dynamic Knowledge Store
+        if (parsed.experience.items.length > 0) {
+          activeProfile.dynamicFields = activeProfile.dynamicFields || [];
+          const nestedRoleDescriptions = {};
+          parsed.experience.items.forEach((item, idx) => {
+            if (item.description) {
+              nestedRoleDescriptions[`Work Experience ${idx + 1}`] = {
+                company: item.company || "",
+                title: item.title || "",
+                roleDescription: item.description,
+                sectionIndex: idx
+              };
+            }
+          });
+
+          const roleDescIdx = activeProfile.dynamicFields.findIndex(df => df.canonicalKey === "experience.role_descriptions");
+          if (roleDescIdx >= 0) {
+            activeProfile.dynamicFields[roleDescIdx].nestedDetails = nestedRoleDescriptions;
+            activeProfile.dynamicFields[roleDescIdx].value = parsed.experience.items[0]?.description || "";
+          } else if (Object.keys(nestedRoleDescriptions).length > 0) {
+            activeProfile.dynamicFields.push({
+              id: "df-exp-role-descriptions",
+              category: "Work Experience",
+              canonicalKey: "experience.role_descriptions",
+              label: "Work Experience Role Descriptions",
+              aliases: [
+                "role description",
+                "job description",
+                "responsibilities",
+                "description of duties",
+                "work experience description",
+                "summary of duties"
+              ],
+              value: parsed.experience.items[0]?.description || "",
+              nestedDetails: nestedRoleDescriptions,
+              stats: { timesSuggested: 0, timesAccepted: 0, timesCorrected: 0, confidence: 1.0 }
+            });
+          }
+        }
       }
     }
     if (parsed.education) {

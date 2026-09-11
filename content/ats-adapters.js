@@ -88,6 +88,15 @@ var AtsAdapters = {
       workdayId: ["legalnamesection_firstname", "firstname", "givenname"]
     },
     {
+      key: "middleName",
+      category: "personal",
+      subKey: "middleName",
+      labels: ["middle name", "middle initial", "middle", "second name", "additional name"],
+      names: ["middlename", "middle_name", "middle-name", "middleinitial", "middle_initial"],
+      autocomplete: ["additional-name"],
+      workdayId: ["legalnamesection_middlename", "middlename"]
+    },
+    {
       key: "lastName",
       category: "personal",
       subKey: "lastName",
@@ -234,7 +243,7 @@ var AtsAdapters = {
     {
       key: "roleDescription",
       category: "experience",
-      subKey: "headline",
+      subKey: "description",
       labels: ["role description", "job description", "responsibilities", "description", "summary of duties"],
       names: ["role_description", "job_description", "description", "responsibilities"],
       autocomplete: [],
@@ -434,6 +443,51 @@ var AtsAdapters = {
     }
   ],
 
+  // Universal Semantic Parent-Scope Detector (Work Experience, Education, Projects, References)
+  detectParentScope(el, textSignals = [], sectionIndex = 0) {
+    if (!el) return sectionIndex > 0 ? `Work Experience ${sectionIndex + 1}` : "Personal Information";
+
+    const container = el.closest ? el.closest('fieldset, [data-automation-id*="workExperience"], [data-automation-id*="education"], [data-automation-id*="experience"], .work-experience-item, .experience-section, .education-section, [data-testid*="experience"], [data-testid*="education"], .experience-card, .education-card, [role="group"]') : null;
+
+    let headingText = "";
+    if (container && container.querySelector) {
+      const legend = container.querySelector('legend, h1, h2, h3, h4, h5, .card-title, .section-title, [data-automation-id*="title"]');
+      if (legend && (legend.innerText || legend.textContent)) {
+        headingText = (legend.innerText || legend.textContent).trim();
+      }
+    }
+
+    if (!headingText && el.closest) {
+      let prev = el.previousElementSibling;
+      while (prev && !headingText) {
+        if (/^H[1-6]$/.test(prev.tagName) || (prev.classList && (prev.classList.contains('section-header') || prev.classList.contains('card-header')))) {
+          headingText = (prev.innerText || prev.textContent || '').trim();
+        }
+        prev = prev.previousElementSibling;
+      }
+    }
+
+    const autoId = (el.getAttribute && (el.getAttribute('data-automation-id') || '')) || '';
+    const containerAutoId = (container && container.getAttribute && container.getAttribute('data-automation-id')) || '';
+    const signalsText = Array.isArray(textSignals) ? textSignals.join(' ') : String(textSignals || '');
+    const combined = `${headingText} ${autoId} ${containerAutoId} ${container?.className || ""} ${signalsText}`.toLowerCase();
+
+    if (combined.includes("work experience") || combined.includes("job experience") || combined.includes("employment history") || combined.includes("work history") || combined.includes("experience")) {
+      return `Work Experience ${sectionIndex + 1}`;
+    }
+    if (combined.includes("education") || combined.includes("academic") || combined.includes("school") || combined.includes("university") || combined.includes("degree")) {
+      return `Education ${sectionIndex + 1}`;
+    }
+    if (combined.includes("project")) {
+      return `Project ${sectionIndex + 1}`;
+    }
+    if (combined.includes("reference")) {
+      return `Reference ${sectionIndex + 1}`;
+    }
+
+    return sectionIndex > 0 ? `Section ${sectionIndex + 1}` : "Personal Information";
+  },
+
   // Extract all text cues from an element
   getElementDescriptor(el) {
     const textSignals = [];
@@ -525,7 +579,8 @@ var AtsAdapters = {
       dataAutomationId: fullAutomationId,
       combinedLabels: textSignals.join(' ').toLowerCase(),
       isRequired,
-      isOptional
+      isOptional,
+      parentScope: this.detectParentScope(el, textSignals)
     };
   },
 
@@ -672,6 +727,10 @@ var AtsAdapters = {
           continue;
         }
 
+        if (lbl === "name" && (descriptor.combinedLabels.includes("middle") || descriptor.combinedLabels.includes("first") || descriptor.combinedLabels.includes("last") || descriptor.combinedLabels.includes("company") || descriptor.combinedLabels.includes("school") || descriptor.combinedLabels.includes("employer") || descriptor.combinedLabels.includes("organization"))) {
+          continue;
+        }
+
         const isShort = lbl.length <= 5;
         const regex = new RegExp(isShort ? `\\b${lbl}\\b` : lbl, 'i');
 
@@ -712,9 +771,52 @@ var AtsAdapters = {
         if (isAliasMatch) {
           let resolvedValue = df.value;
 
-          // Nested details resolution (e.g. Higher Education asking for Major, Degree, GPA, Graduation Year)
+          // Universal Hierarchical Parent-Context & Nested Details Resolution
           if (df.nestedDetails && typeof df.nestedDetails === 'object') {
-            if (combined.includes("major") || combined.includes("field of study") || combined.includes("discipline") || combined.includes("specialization")) {
+            const parentScope = descriptor.parentScope || this.detectParentScope(descriptor.element, descriptor.combinedLabels, sectionIndex);
+
+            // 1. Direct Parent Scope lookup (e.g. df.nestedDetails["Work Experience 2"] or ["Education 1"])
+            if (df.nestedDetails[parentScope] && typeof df.nestedDetails[parentScope] === 'object') {
+              for (const [subKey, subVal] of Object.entries(df.nestedDetails[parentScope])) {
+                if (subVal && (combined.includes(subKey.toLowerCase()) || isNinetyPercentMatch(descriptor.combinedLabels, subKey))) {
+                  resolvedValue = subVal;
+                  break;
+                }
+              }
+            }
+            // 2. Direct Container Entity (e.g. df.label === parentScope or canonicalKey matches parentScope)
+            else if (df.label === parentScope || (df.canonicalKey && df.canonicalKey.includes(parentScope.toLowerCase().replace(/[^a-z0-9]/g, '_')))) {
+              for (const [subKey, subVal] of Object.entries(df.nestedDetails)) {
+                if (subVal && (combined.includes(subKey.toLowerCase()) || isNinetyPercentMatch(descriptor.combinedLabels, subKey))) {
+                  resolvedValue = subVal;
+                  break;
+                }
+              }
+            }
+            // 3. Section-indexed numeric fallback (e.g. df.nestedDetails["1"] or df.nestedDetails[String(sectionIndex + 1)])
+            else if (df.nestedDetails[String(sectionIndex + 1)] && typeof df.nestedDetails[String(sectionIndex + 1)] === 'object') {
+              for (const [subKey, subVal] of Object.entries(df.nestedDetails[String(sectionIndex + 1)])) {
+                if (subVal && (combined.includes(subKey.toLowerCase()) || isNinetyPercentMatch(descriptor.combinedLabels, subKey))) {
+                  resolvedValue = subVal;
+                  break;
+                }
+              }
+            }
+            // 4. Role descriptions specific handler
+            else if (df.canonicalKey === "experience.role_descriptions" || df.category === "Work Experience") {
+              const expSectionKey = `Work Experience ${sectionIndex + 1}`;
+              if (df.nestedDetails[expSectionKey]?.roleDescription) {
+                resolvedValue = df.nestedDetails[expSectionKey].roleDescription;
+              } else if (df.nestedDetails[String(sectionIndex + 1)]?.roleDescription) {
+                resolvedValue = df.nestedDetails[String(sectionIndex + 1)].roleDescription;
+              } else if (sectionIndex === 0 && df.nestedDetails["Work Experience 1"]?.roleDescription) {
+                resolvedValue = df.nestedDetails["Work Experience 1"].roleDescription;
+              } else {
+                resolvedValue = "";
+              }
+            }
+            // 5. Semantic field name fallbacks (major, degree, gpa, etc.)
+            else if (combined.includes("major") || combined.includes("field of study") || combined.includes("discipline") || combined.includes("specialization")) {
               resolvedValue = df.nestedDetails.major || df.nestedDetails.fieldOfStudy || resolvedValue;
             } else if (combined.includes("degree") && !combined.includes("highest degree") && !combined.includes("degree level") && df.nestedDetails.degree) {
               resolvedValue = df.nestedDetails.degree;
@@ -795,13 +897,13 @@ var AtsAdapters = {
         if (subKey === "currentTitle" || subKey === "title") return item.title || profile.experience?.currentTitle || "";
         if (subKey === "location" || subKey === "jobLocation") return item.location || profile.experience?.location || profile.personal?.location || "";
         if (subKey === "isCurrent" || subKey === "currentlyWorkHere") return item.isCurrent !== undefined ? item.isCurrent : (index === 0);
-        if (subKey === "roleDescription" || subKey === "description") return item.description || profile.experience?.headline || "";
+        if (subKey === "roleDescription" || subKey === "description") return item.description || "";
         if (subKey === "startDate" || subKey === "fromDate") return item.startDate || "";
         if (subKey === "endDate" || subKey === "toDate") return item.endDate || (item.isCurrent ? "Present" : "");
       }
       if (subKey === "location" || subKey === "jobLocation") return profile.experience?.location || profile.personal?.location || profile.personal?.city || "";
       if (subKey === "isCurrent" || subKey === "currentlyWorkHere") return true;
-      if (subKey === "roleDescription" || subKey === "description") return profile.experience?.headline || "";
+      if (subKey === "roleDescription" || subKey === "description") return "";
       return profile.experience?.[subKey] || "";
     }
     if (category === "education") {

@@ -89,6 +89,16 @@ async function processBackgroundSyncQueue() {
     profile.pendingSyncQueue = [];
     await StorageService.clearPendingSyncQueue();
 
+    // Ensure all user_cleared_field items are permanently cleared from profile and marked ignored
+    for (const it of pendingItems) {
+      if (it && it.type === "user_cleared_field" && it.fieldLabel) {
+        await StorageService.handleUserClearedField({
+          fieldLabel: it.fieldLabel,
+          fieldNameOrId: it.fieldNameOrId
+        });
+      }
+    }
+
     if (!apiKey) {
       console.log("[ApplyPilot Background] Telemetry queued. Background Gemini compiler idle (no API key configured).");
       return;
@@ -202,6 +212,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             value: request.value,
             isRequired: request.isRequired
           });
+          sendResponse({ success: true, res });
+          break;
+        }
+
+        case "USER_CLEARED_FIELD": {
+          const res = await StorageService.handleUserClearedField(request);
+          sendResponse({ success: true, res });
+          break;
+        }
+
+        case "SAVE_WORK_EXPERIENCE_FIELD": {
+          const res = await StorageService.saveWorkExperienceRoleDescription(request);
+          sendResponse({ success: true, res });
+          break;
+        }
+
+        case "SAVE_NESTED_FIELD": {
+          const res = await StorageService.saveNestedField(request);
           sendResponse({ success: true, res });
           break;
         }

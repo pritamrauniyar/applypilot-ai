@@ -291,6 +291,7 @@ global.MutationObserver = class MockMutationObserver {
 
 // Mock chrome
 let lastSentMessage = null;
+let allSentMessages = [];
 let messageResponses = {};
 
 global.chrome = {
@@ -299,6 +300,7 @@ global.chrome = {
     lastError: null,
     sendMessage: (msg, cb) => {
       lastSentMessage = msg;
+      allSentMessages.push(msg);
       if (chrome.runtime.lastError) {
         if (cb) cb(undefined);
         return;
@@ -662,6 +664,71 @@ test('ContentEngine: capturePageValues & Field Capture Listeners', async () => {
   normEvt.target = normInput;
   document.dispatchEvent(normEvt);
   await new Promise(r => setTimeout(r, 650));
+
+  // Test focus event listener setting apHadValue and apAutofillVal
+  const focusInput = document.createElement('input');
+  focusInput.id = 'focus_test_input';
+  focusInput.setAttribute('placeholder', 'Focus Test');
+  focusInput.value = 'Existing Initial Text';
+  document.body.appendChild(focusInput);
+
+  const focusEvt = new MockEvent('focus', { bubbles: true });
+  focusEvt.target = focusInput;
+  document.dispatchEvent(focusEvt);
+  assert.strictEqual(focusInput.dataset.apHadValue, 'true');
+  assert.strictEqual(focusInput.dataset.apAutofillVal, 'Existing Initial Text');
+
+  // Test clearing an autofilled or previously filled field
+  allSentMessages = [];
+  focusInput.value = '';
+  const clearEvt = new MockEvent('change', { bubbles: true });
+  clearEvt.target = focusInput;
+  document.dispatchEvent(clearEvt);
+  await new Promise(r => setTimeout(r, 650));
+
+  const clearMsg = allSentMessages.find(m => m.action === 'USER_CLEARED_FIELD');
+  assert.ok(clearMsg, 'USER_CLEARED_FIELD was dispatched');
+  assert.ok(clearMsg.parentScope);
+  assert.ok(clearMsg.childKey);
+  assert.strictEqual(focusInput.dataset.apUserCleared, 'true');
+
+  // Test entering a middle name input
+  allSentMessages = [];
+  const midInput = document.createElement('input');
+  midInput.id = 'middle_name_field';
+  midInput.setAttribute('placeholder', 'Middle Name (Optional)');
+  midInput.value = 'Kumar';
+  document.body.appendChild(midInput);
+
+  const midEvt = new MockEvent('change', { bubbles: true });
+  midEvt.target = midInput;
+  document.dispatchEvent(midEvt);
+  await new Promise(r => setTimeout(r, 650));
+
+  const saveMidMsg = allSentMessages.find(m => m.action === 'SAVE_NESTED_FIELD' && m.childKey === 'middleName');
+  assert.ok(saveMidMsg, 'SAVE_NESTED_FIELD for middleName was dispatched');
+  assert.strictEqual(saveMidMsg.value, 'Kumar');
+
+  // Test entering education field in education container
+  allSentMessages = [];
+  const eduContainer = document.createElement('fieldset');
+  eduContainer.setAttribute('data-automation-id', 'educationSection');
+  const degreeInput = document.createElement('input');
+  degreeInput.id = 'degree_field';
+  degreeInput.setAttribute('placeholder', 'Degree');
+  degreeInput.value = 'Bachelor of Science';
+  eduContainer.appendChild(degreeInput);
+  document.body.appendChild(eduContainer);
+
+  const degEvt = new MockEvent('change', { bubbles: true });
+  degEvt.target = degreeInput;
+  document.dispatchEvent(degEvt);
+  await new Promise(r => setTimeout(r, 650));
+
+  const saveEduMsg = allSentMessages.find(m => m.action === 'SAVE_NESTED_FIELD' && m.category === 'education');
+  assert.ok(saveEduMsg, 'SAVE_NESTED_FIELD for education was dispatched');
+  assert.strictEqual(saveEduMsg.childKey, 'degree');
+  assert.strictEqual(saveEduMsg.value, 'Bachelor of Science');
 
   // Test form submit listener
   document.dispatchEvent(new MockEvent('submit', { bubbles: true }));

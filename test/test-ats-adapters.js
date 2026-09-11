@@ -391,3 +391,112 @@ test('AtsAdapters: ComplexUIAdapters all branches and edge cases', async () => {
   const nanSlider = await ComplexUIAdapters.fillSliderRating({}, 'not-a-number');
   assert.strictEqual(nanSlider, false);
 });
+
+test('AtsAdapters: middleName matching vs fullName protection and nested work experience role descriptions', async (t) => {
+  const profile = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
+  profile.personal.firstName = "Pritam";
+  profile.personal.middleName = "";
+  profile.personal.lastName = "Rauniyar";
+  profile.personal.fullName = "Pritam Rauniyar";
+
+  // 1. Element with label "Middle Name" must match middleName, NOT fullName!
+  const middleDesc = {
+    tag: 'input',
+    type: 'text',
+    name: 'middle_name',
+    id: 'applicant_middle_name',
+    placeholder: 'Middle name',
+    ariaLabel: 'Middle Name',
+    autocomplete: 'additional-name',
+    dataAutomationId: 'legalnamesection_middlename',
+    combinedLabels: 'middle name',
+    isRequired: false,
+    isOptional: true
+  };
+
+  const matchMiddle = AtsAdapters.matchElement(middleDesc, profile);
+  // Since middleName is empty in profile, it should NOT match fullName with "Pritam Rauniyar"!
+  assert.strictEqual(matchMiddle.matched, false);
+
+  // If middleName has a value, it matches middleName
+  profile.personal.middleName = "Kumar";
+  const matchMiddleWithVal = AtsAdapters.matchElement(middleDesc, profile);
+  assert.strictEqual(matchMiddleWithVal.matched, true);
+  assert.strictEqual(matchMiddleWithVal.value, "Kumar");
+  assert.strictEqual(matchMiddleWithVal.def.key, "middleName");
+
+  // 2. Element with label "Full Name" matches fullName
+  const fullDesc = {
+    tag: 'input',
+    type: 'text',
+    name: 'full_name',
+    id: 'name',
+    placeholder: 'Full name',
+    ariaLabel: 'Full Name',
+    autocomplete: 'name',
+    dataAutomationId: 'legalnamesection_name',
+    combinedLabels: 'full name',
+    isRequired: true,
+    isOptional: false
+  };
+  const matchFull = AtsAdapters.matchElement(fullDesc, profile);
+  assert.strictEqual(matchFull.matched, true);
+  assert.strictEqual(matchFull.def.key, "fullName");
+
+  // 3. Work Experience Role Description: should NOT fall back to headline when description is empty!
+  profile.dynamicFields = [];
+  profile.experience.headline = "Senior Technical Architect & Engineer";
+  profile.experience.items = [
+    { id: "exp-1", company: "Uber", title: "SWE II", description: "" },
+    { id: "exp-2", company: "Meta", title: "SWE I", description: "Engineered scalable microservices." }
+  ];
+
+  const roleDescElem = {
+    tag: 'textarea',
+    type: 'textarea',
+    name: 'role_description',
+    id: 'role_description',
+    placeholder: 'Job responsibilities and accomplishments',
+    ariaLabel: 'Role Description',
+    autocomplete: '',
+    dataAutomationId: 'roledescription',
+    combinedLabels: 'role description',
+    isRequired: false,
+    isOptional: true
+  };
+
+  // Section 0 has empty description -> must NOT return headline, must return matched: false or empty!
+  const matchRole0 = AtsAdapters.matchElement(roleDescElem, profile, 0);
+  assert.strictEqual(matchRole0.matched, false);
+
+  // Section 1 has description -> returns role description for section 1
+  const matchRole1 = AtsAdapters.matchElement(roleDescElem, profile, 1);
+  assert.strictEqual(matchRole1.matched, true);
+  assert.strictEqual(matchRole1.value, "Engineered scalable microservices.");
+
+  // 4. Nested dynamic fields resolution under experience.role_descriptions
+  profile.dynamicFields = [
+    {
+      id: "df-exp-role-descriptions",
+      category: "Work Experience",
+      canonicalKey: "experience.role_descriptions",
+      label: "Work Experience Role Descriptions",
+      aliases: ["role description", "job description", "responsibilities"],
+      value: "Role 1 fallback",
+      nestedDetails: {
+        "Work Experience 1": { roleDescription: "Nested description for job 1" },
+        "Work Experience 2": { roleDescription: "Nested description for job 2" }
+      }
+    }
+  ];
+
+  // Remove standard items to test dynamic field fallback
+  profile.experience.items = [];
+  const dynRole0 = AtsAdapters.matchElement(roleDescElem, profile, 0);
+  assert.strictEqual(dynRole0.matched, true);
+  assert.strictEqual(dynRole0.value, "Nested description for job 1");
+
+  const dynRole1 = AtsAdapters.matchElement(roleDescElem, profile, 1);
+  assert.strictEqual(dynRole1.matched, true);
+  assert.strictEqual(dynRole1.value, "Nested description for job 2");
+});
