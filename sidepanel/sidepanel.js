@@ -139,6 +139,34 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
 
+    // Add dynamic knowledge fields
+    (p.dynamicFields || []).forEach(df => {
+      if (df.value) {
+        items.push({
+          title: `🏷️ ${df.label}`,
+          value: df.value
+        });
+      }
+      if (df.nestedDetails && typeof df.nestedDetails === 'object') {
+        const nestedStr = Object.entries(df.nestedDetails)
+          .map(([k, v]) => `${k.charAt(0).toUpperCase() + k.slice(1)}: ${v}`)
+          .join('\n');
+        items.push({
+          title: `📋 ${df.label} (Details)`,
+          value: nestedStr
+        });
+      }
+      if (df.companyAnswers && typeof df.companyAnswers === 'object') {
+        const compStr = Object.entries(df.companyAnswers)
+          .map(([comp, ans]) => `${comp}: ${ans}`)
+          .join('\n');
+        items.push({
+          title: `🏢 ${df.label} (Company Rules)`,
+          value: compStr
+        });
+      }
+    });
+
     // Add custom fields
     (p.customFields || []).forEach(cf => {
       items.push({ title: cf.label, value: cf.value });

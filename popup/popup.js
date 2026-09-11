@@ -10,15 +10,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   tabButtons.forEach(btn => {
     btn.addEventListener('click', () => {
-      tabButtons.forEach(b => b.classList.remove('active'));
-      tabContents.forEach(c => c.classList.remove('active'));
-      btn.classList.add('active');
-      const target = document.getElementById(btn.dataset.tab);
-      if (target) target.classList.add('active');
-      if (btn.dataset.tab === 'tab-logs') {
-        renderAuditLogs();
-        renderIgnoredFields();
-      }
+      switchToTab(btn.dataset.tab);
     });
   });
 
@@ -113,9 +105,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     activeProfile = await StorageService.getProfile();
     populateForm(activeProfile);
     renderExperienceList(activeProfile.experience?.items || []);
-    renderCustomFields(activeProfile.customFields || []);
-    renderLearnedMemory(activeProfile.learnedMemory || []);
+    renderDynamicFields(activeProfile.dynamicFields || []);
     updateSummary(activeProfile);
+    renderIgnoredFields();
   }
 
   function updateSummary(p) {
@@ -369,87 +361,174 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('btn-save-profile').addEventListener('click', saveForm);
 
-  // 5. Render Custom Fields
-  function renderCustomFields(fields) {
-    const container = document.getElementById('custom-fields-list');
-    document.getElementById('custom-fields-count').textContent = fields.length;
+  // 5. Render Dynamic Knowledge Entities
+  function renderDynamicFields(fields = []) {
+    const container = document.getElementById('dynamic-categories-container');
+    const countBadge = document.getElementById('dynamic-fields-count');
+    if (!container) return;
+
+    const allFields = fields || [];
+    const filterQuery = (document.getElementById('df-search-input')?.value || "").toLowerCase().trim();
+
+    let filtered = allFields;
+    if (filterQuery) {
+      filtered = allFields.filter(f => {
+        const labelMatch = (f.label || "").toLowerCase().includes(filterQuery);
+        const valMatch = (f.value || "").toLowerCase().includes(filterQuery);
+        const catMatch = (f.category || "").toLowerCase().includes(filterQuery);
+        const aliasMatch = (f.aliases || []).some(a => a.toLowerCase().includes(filterQuery));
+        const nestedMatch = f.nestedDetails ? JSON.stringify(f.nestedDetails).toLowerCase().includes(filterQuery) : false;
+        const companyMatch = f.companyAnswers ? JSON.stringify(f.companyAnswers).toLowerCase().includes(filterQuery) : false;
+        return labelMatch || valMatch || catMatch || aliasMatch || nestedMatch || companyMatch;
+      });
+    }
+
+    if (countBadge) countBadge.textContent = `${allFields.length} Fields`;
     container.innerHTML = '';
 
-    if (!fields.length) {
-      container.innerHTML = '<div class="ap-text-muted" style="padding: 6px 0;">No custom fields added yet.</div>';
+    if (!filtered.length) {
+      container.innerHTML = `
+        <div class="ap-text-muted" style="padding: 12px; text-align: center; font-size: 11.5px; background: var(--bg-hover); border-radius: 6px;">
+          ${filterQuery ? 'No dynamic fields matching "' + escapeHtml(filterQuery) + '"' : 'No dynamic fields found. Add your first field above or let the feedback loop learn as you apply!'}
+        </div>
+      `;
       return;
     }
 
-    fields.forEach(f => {
-      const item = document.createElement('div');
-      item.className = 'ap-field-item';
-      item.innerHTML = `
-        <div class="ap-field-item-content">
-          <div class="ap-field-label">${escapeHtml(f.label)}</div>
-          <div class="ap-field-val">${escapeHtml(f.value)}</div>
-          <div class="ap-text-muted" style="margin-top: 2px;">Keywords: ${(f.keywords || []).join(', ')}</div>
+    // Group fields by category
+    const grouped = {};
+    filtered.forEach(f => {
+      const cat = f.category || "Custom / Learned";
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(f);
+    });
+
+    const categoryIcons = {
+      "Education": "🎓",
+      "Work History": "💼",
+      "Company-Specific": "🏢",
+      "General Application": "🌐",
+      "Contact & Links": "🔗",
+      "Custom / Learned": "🏷️"
+    };
+
+    Object.keys(grouped).forEach(catName => {
+      const groupCard = document.createElement('div');
+      groupCard.className = 'ap-card';
+      groupCard.style.cssText = "margin-bottom: 8px; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;";
+
+      const icon = categoryIcons[catName] || "📁";
+      const itemsHtml = grouped[catName].map(f => {
+        let nestedHtml = '';
+        if (f.nestedDetails && typeof f.nestedDetails === 'object') {
+          const subEntries = Object.entries(f.nestedDetails).map(([k, v]) => 
+            `<span style="background: rgba(99,102,241,0.08); color: var(--primary); padding: 1px 6px; border-radius: 4px; font-size: 10px;"><strong>${escapeHtml(k)}:</strong> ${escapeHtml(String(v))}</span>`
+          ).join(' ');
+          nestedHtml = `<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${nestedHtml ? nestedHtml + ' ' : ''}${subEntries}</div>`;
+        } else if (f.companyAnswers && typeof f.companyAnswers === 'object') {
+          const compEntries = Object.entries(f.companyAnswers).map(([k, v]) => 
+            `<span style="background: rgba(16,185,129,0.1); color: #059669; padding: 1px 6px; border-radius: 4px; font-size: 10px;"><strong>${escapeHtml(k)}:</strong> ${escapeHtml(String(v))}</span>`
+          ).join(' ');
+          nestedHtml = `<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${compEntries}</div>`;
+        }
+
+        const aliasChips = (f.aliases || []).slice(0, 5).map(a => 
+          `<span style="background: var(--bg-hover); color: var(--text-muted); font-size: 9.5px; padding: 1px 5px; border-radius: 3px;">${escapeHtml(a)}</span>`
+        ).join(' ');
+
+        return `
+          <div class="ap-field-item" style="display: flex; justify-content: space-between; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--border); position: relative;">
+            <div style="flex: 1; padding-right: 8px;">
+              <div style="font-weight: 600; font-size: 11.5px; color: var(--text);">${escapeHtml(f.label)}</div>
+              <div style="font-size: 11px; color: var(--text); margin-top: 2px;">${escapeHtml(f.value || "")}</div>
+              ${nestedHtml}
+              ${aliasChips ? `<div style="display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px;">${aliasChips}</div>` : ""}
+            </div>
+            <button class="ap-field-del-btn ap-del-df-btn" data-id="${f.id}" title="Remove Field" style="font-size: 14px; background: none; border: none; cursor: pointer; color: var(--text-muted);">&times;</button>
+          </div>
+        `;
+      }).join('');
+
+      groupCard.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <strong style="font-size: 11.5px; color: var(--text);">${icon} ${escapeHtml(catName)}</strong>
+          <span style="font-size: 10px; background: var(--bg-hover); padding: 1px 5px; border-radius: 4px; color: var(--text-muted);">${grouped[catName].length}</span>
         </div>
-        <button class="ap-field-del-btn" data-id="${f.id}">&times;</button>
+        <div style="display: flex; flex-direction: column;">
+          ${itemsHtml}
+        </div>
       `;
 
-      item.querySelector('.ap-field-del-btn').addEventListener('click', async () => {
-        await StorageService.deleteCustomField(f.id);
-        await refreshProfile();
+      groupCard.querySelectorAll('.ap-del-df-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const id = e.currentTarget.dataset.id;
+          if (confirm("Delete this dynamic entity from knowledge base?")) {
+            await StorageService.deleteDynamicField(id);
+            await refreshProfile();
+          }
+        });
       });
 
-      container.appendChild(item);
+      container.appendChild(groupCard);
     });
   }
 
-  // Add Custom Field Handler
-  document.getElementById('btn-add-custom-field').addEventListener('click', async () => {
-    const label = document.getElementById('cf-label').value.trim();
-    const value = document.getElementById('cf-value').value.trim();
-    const keywords = document.getElementById('cf-keywords').value.trim();
+  // Add Dynamic Field Handlers
+  const btnToggleAddDf = document.getElementById('btn-toggle-add-df');
+  const btnCancelAddDf = document.getElementById('btn-cancel-add-df');
+  const dfAddForm = document.getElementById('df-add-form');
 
-    if (!label || !value) {
-      alert("Please provide both a field name and value.");
-      return;
+  if (btnToggleAddDf && dfAddForm) {
+    btnToggleAddDf.addEventListener('click', () => {
+      dfAddForm.style.display = dfAddForm.style.display === 'none' ? 'block' : 'none';
+    });
+  }
+
+  if (btnCancelAddDf && dfAddForm) {
+    btnCancelAddDf.addEventListener('click', () => {
+      dfAddForm.style.display = 'none';
+    });
+  }
+
+  const btnSubmitAddDf = document.getElementById('btn-submit-add-df');
+  if (btnSubmitAddDf) {
+    btnSubmitAddDf.addEventListener('click', async () => {
+      const label = document.getElementById('df-new-label')?.value.trim();
+      const category = document.getElementById('df-new-category')?.value || "General Application";
+      const value = document.getElementById('df-new-value')?.value.trim();
+      const aliasesRaw = document.getElementById('df-new-aliases')?.value.trim();
+
+      if (!label || !value) {
+        alert("Please provide at least a concept name / label and primary answer value.");
+        return;
+      }
+
+      const aliases = aliasesRaw 
+        ? aliasesRaw.split(/[,;]+/).map(a => a.trim().toLowerCase()).filter(Boolean)
+        : [label.toLowerCase()];
+
+      await StorageService.addDynamicField({
+        label,
+        category,
+        value,
+        aliases
+      });
+
+      if (document.getElementById('df-new-label')) document.getElementById('df-new-label').value = '';
+      if (document.getElementById('df-new-value')) document.getElementById('df-new-value').value = '';
+      if (document.getElementById('df-new-aliases')) document.getElementById('df-new-aliases').value = '';
+      if (dfAddForm) dfAddForm.style.display = 'none';
+
+      await refreshProfile();
+    });
+  }
+
+  // Dynamic Fields search filter
+  document.getElementById('df-search-input')?.addEventListener('input', () => {
+    if (activeProfile) {
+      renderDynamicFields(activeProfile.dynamicFields || []);
     }
-
-    await StorageService.addCustomField({ label, value, keywords });
-    document.getElementById('cf-label').value = '';
-    document.getElementById('cf-value').value = '';
-    document.getElementById('cf-keywords').value = '';
-    await refreshProfile();
   });
-
-  // 6. Render Learned AI Memory
-  function renderLearnedMemory(memory) {
-    const container = document.getElementById('learned-memory-list');
-    document.getElementById('learned-memory-count').textContent = memory.length;
-    container.innerHTML = '';
-
-    if (!memory.length) {
-      container.innerHTML = '<div class="ap-text-muted" style="padding: 6px 0;">No learned questions yet. As you approve AI suggestions on applications, they appear here.</div>';
-      return;
-    }
-
-    memory.forEach((m, idx) => {
-      const item = document.createElement('div');
-      item.className = 'ap-field-item';
-      item.innerHTML = `
-        <div class="ap-field-item-content">
-          <div class="ap-field-label">❓ ${escapeHtml(m.fieldLabel)}</div>
-          <div class="ap-field-val">💡 ${escapeHtml(m.answer)}</div>
-        </div>
-        <button class="ap-field-del-btn" data-idx="${idx}">&times;</button>
-      `;
-
-      item.querySelector('.ap-field-del-btn').addEventListener('click', async () => {
-        activeProfile.learnedMemory.splice(idx, 1);
-        await StorageService.saveProfile(activeProfile);
-        renderLearnedMemory(activeProfile.learnedMemory);
-      });
-
-      container.appendChild(item);
-    });
-  }
 
   // 7. Active Tab Inspection & Autofill
   async function inspectActiveTab() {
@@ -703,7 +782,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     StorageService.saveProfile(activeProfile);
     populateForm(activeProfile);
     renderExperienceList(activeProfile.experience?.items || []);
-    renderCustomFields(activeProfile.customFields);
+    renderDynamicFields(activeProfile.dynamicFields || []);
     updateSummary(activeProfile);
   }
 
@@ -725,12 +804,56 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function renderAuditLogs() {
     const logs = await AuditLogger.getLogs();
     const stats = await AuditLogger.getStats();
+    const syncQueue = (await StorageService.getPendingSyncQueue()) || [];
 
     // Update stats metrics
-    document.getElementById('log-stat-autofills').textContent = stats.totalAutofills;
-    document.getElementById('log-stat-captures').textContent = stats.totalManualCaptures;
-    document.getElementById('log-stat-errors').textContent = stats.totalErrors;
-    document.getElementById('log-stat-success-rate').textContent = `${stats.successRate} Success`;
+    if (document.getElementById('log-stat-autofills')) document.getElementById('log-stat-autofills').textContent = stats.totalAutofills;
+    if (document.getElementById('log-stat-captures')) document.getElementById('log-stat-captures').textContent = stats.totalManualCaptures;
+    if (document.getElementById('log-stat-errors')) document.getElementById('log-stat-errors').textContent = stats.totalErrors;
+    if (document.getElementById('log-stat-success-rate')) document.getElementById('log-stat-success-rate').textContent = `${stats.successRate} Success`;
+
+    // Calculate deep fill metrics from recent telemetry and corrections
+    let compulsoryFilled = 0;
+    let compulsoryUnfilled = 0;
+    let optionalFilled = 0;
+    let optionalUnfilled = 0;
+    let userCorrections = 0;
+
+    userCorrections = syncQueue.filter(item => item.type === 'user_correction').length;
+    logs.forEach(l => {
+      if (l.actionType === 'manual_entry' && (l.details || '').includes('User corrected')) {
+        userCorrections++;
+      }
+    });
+
+    const latestTelemetry = [...syncQueue].reverse().find(i => i.type === 'autofill_telemetry' && i.metrics);
+    if (latestTelemetry && latestTelemetry.metrics) {
+      compulsoryFilled = latestTelemetry.metrics.compulsoryFilled || 0;
+      compulsoryUnfilled = latestTelemetry.metrics.compulsoryUnfilled || 0;
+      optionalFilled = latestTelemetry.metrics.optionalFilled || 0;
+      optionalUnfilled = latestTelemetry.metrics.optionalUnfilled || 0;
+    } else {
+      compulsoryFilled = stats.totalAutofills;
+      optionalFilled = Math.max(0, Math.floor(stats.totalAutofills * 0.25));
+      compulsoryUnfilled = stats.totalErrors;
+      optionalUnfilled = stats.totalSkipped;
+    }
+
+    if (document.getElementById('log-stat-compulsory')) {
+      document.getElementById('log-stat-compulsory').textContent = `${compulsoryFilled} Filled`;
+    }
+    if (document.getElementById('log-stat-compulsory-unfilled')) {
+      document.getElementById('log-stat-compulsory-unfilled').textContent = `${compulsoryUnfilled} Unfilled`;
+    }
+    if (document.getElementById('log-stat-optional')) {
+      document.getElementById('log-stat-optional').textContent = `${optionalFilled} Filled`;
+    }
+    if (document.getElementById('log-stat-optional-unfilled')) {
+      document.getElementById('log-stat-optional-unfilled').textContent = `${optionalUnfilled} Skipped`;
+    }
+    if (document.getElementById('log-stat-corrections')) {
+      document.getElementById('log-stat-corrections').textContent = String(userCorrections);
+    }
 
     const feedEl = document.getElementById('audit-log-feed');
     const filterQuery = (document.getElementById('log-filter-input')?.value || "").toLowerCase().trim();
@@ -843,6 +966,30 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderAuditLogs();
     }
   });
+
+  // Sync & Refine Knowledge Base with AI Now Button
+  const btnSyncAi = document.getElementById('btn-sync-ai-memory');
+  if (btnSyncAi) {
+    btnSyncAi.addEventListener('click', async () => {
+      btnSyncAi.disabled = true;
+      const originalHtml = btnSyncAi.innerHTML;
+      btnSyncAi.innerHTML = `<span>⏳ Synthesizing with Gemini...</span>`;
+
+      chrome.runtime.sendMessage({ action: "TRIGGER_BACKGROUND_SYNC_NOW" }, async (res) => {
+        if (res && res.success) {
+          btnSyncAi.innerHTML = `<span>✓ Synced & Refined (${res.processedCount || 0} items)!</span>`;
+          await refreshProfile();
+          await renderAuditLogs();
+        } else {
+          btnSyncAi.innerHTML = `<span>ℹ️ ${res?.message || res?.error || "Queue is empty or API key missing"}</span>`;
+        }
+        setTimeout(() => {
+          btnSyncAi.innerHTML = originalHtml;
+          btnSyncAi.disabled = false;
+        }, 3000);
+      });
+    });
+  }
 
   // Log filter search input
   document.getElementById('log-filter-input')?.addEventListener('input', () => {

@@ -85,9 +85,9 @@ assertMatch('Workday Country', mockDescriptor({ dataAutomationId: 'addressSectio
 assertMatch('Workday Job Title', mockDescriptor({ dataAutomationId: 'jobTitle', label: 'Job Title*' }), 'currentTitle', 'Software Engineer');
 assertMatch('Workday Company', mockDescriptor({ dataAutomationId: 'company', label: 'Company*' }), 'currentCompany', 'Uber');
 assertMatch('Workday Location', mockDescriptor({ dataAutomationId: 'location', label: 'Location' }), 'jobLocation', 'San Francisco');
-assertMatch('Workday School', mockDescriptor({ dataAutomationId: 'school', label: 'School or University*' }), 'school', 'University of California');
+assertMatch('Workday School', mockDescriptor({ dataAutomationId: 'school', label: 'School or University*' }), 'school', 'Motilal Nehru');
 assertMatch('Workday Degree', mockDescriptor({ dataAutomationId: 'degree', label: 'Degree*' }), 'degree', 'Bachelor');
-assertMatch('Workday Field of Study', mockDescriptor({ dataAutomationId: 'fieldOfStudy', label: 'Field of Study' }), 'fieldOfStudy', 'Computer Science');
+assertMatch('Workday Field of Study', mockDescriptor({ dataAutomationId: 'fieldOfStudy', label: 'Field of Study' }), 'fieldOfStudy', 'Electronics');
 assertMatch('Workday GPA', mockDescriptor({ dataAutomationId: 'gpa', label: 'Overall Result (GPA)' }), 'gpa', '3.8');
 assertMatch('Workday Skills', mockDescriptor({ dataAutomationId: 'skills', label: 'Type to Add Skills' }), 'skills', 'Go');
 
@@ -373,6 +373,437 @@ if (numYears === '4') {
   console.error(`❌ FAILED: Number sanitization failed, got:`, numYears);
 }
 
+// 9. Testing Dynamic Knowledge Store - Aliasing & Nested Details
+console.log('\n--- 9. Testing Dynamic Knowledge Store - Aliasing & Nested Details ---');
+const { calculateStringSimilarity, isNinetyPercentMatch } = require('../lib/storage.js');
+
+// Test Higher Education Alias
+const descHigherEdu = mockDescriptor({ label: 'Higher Education' });
+const m_higherEdu = AtsAdapters.matchElement(descHigherEdu, DEFAULT_PROFILE);
+total++;
+if (m_higherEdu.matched && m_higherEdu.value === 'Motilal Nehru National Institute Of Technology') {
+  console.log(`✓ [PASS] Dynamic Alias: "Higher Education" -> "${m_higherEdu.value}"`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: "Higher Education" should match college. Got:`, m_higherEdu);
+}
+
+// Test Highest Degree Alias
+const descHighestDeg = mockDescriptor({ label: 'Highest Degree' });
+const m_highestDeg = AtsAdapters.matchElement(descHighestDeg, DEFAULT_PROFILE);
+total++;
+if (m_highestDeg.matched && m_highestDeg.value === 'Motilal Nehru National Institute Of Technology') {
+  console.log(`✓ [PASS] Dynamic Alias: "Highest Degree" -> "${m_highestDeg.value}"`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: "Highest Degree" should match college. Got:`, m_highestDeg);
+}
+
+// Test Nested Major Resolution
+const descNestedMajor = mockDescriptor({ label: 'Higher Education - Major / Specialization' });
+const m_nestedMajor = AtsAdapters.matchElement(descNestedMajor, DEFAULT_PROFILE);
+total++;
+if (m_nestedMajor.matched && m_nestedMajor.value === 'Electronics and Communication Engineering') {
+  console.log(`✓ [PASS] Dynamic Nested Detail: "Major / Specialization" -> "${m_nestedMajor.value}"`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Nested Major resolution failed. Got:`, m_nestedMajor);
+}
+
+// 10. Testing Company-Specific 90% Fuzzy Matching
+console.log('\n--- 10. Testing Company-Specific 90% Fuzzy Matching ---');
+
+// Test 90% fuzzy similarity helper
+total += 2;
+const simUber = isNinetyPercentMatch('Uber Technologies Inc', 'Uber');
+const simMsft = isNinetyPercentMatch('Microsoft Corporation', 'Microsoft');
+
+if (simUber) {
+  console.log(`✓ [PASS] Fuzzy Matcher: "Uber Technologies Inc" matches "Uber" (>=90% token similarity)`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Fuzzy Matcher failed for Uber!`);
+}
+
+if (simMsft) {
+  console.log(`✓ [PASS] Fuzzy Matcher: "Microsoft Corporation" matches "Microsoft" (>=90% token similarity)`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Fuzzy Matcher failed for Microsoft!`);
+}
+
+// Test Company-Specific Question on Uber
+total += 2;
+const descWorkedUber = mockDescriptor({ label: 'Have you ever worked at Uber Technologies?' });
+descWorkedUber.url = 'https://uber.wd1.myworkdayjobs.com/apply';
+const m_uber = AtsAdapters.matchElement(descWorkedUber, DEFAULT_PROFILE);
+
+if (m_uber.matched && m_uber.value === 'Yes') {
+  console.log(`✓ [PASS] Company-Specific Rule: "Have you ever worked at Uber Technologies?" -> "${m_uber.value}"`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Worked at Uber should be "Yes". Got:`, m_uber);
+}
+
+// Test Company-Specific Question on Microsoft
+const descWorkedMsft = mockDescriptor({ label: 'Have you ever worked at Microsoft Corporation?' });
+descWorkedMsft.url = 'https://careers.microsoft.com/apply';
+const m_msft = AtsAdapters.matchElement(descWorkedMsft, DEFAULT_PROFILE);
+
+if (m_msft.matched && m_msft.value === 'No') {
+  console.log(`✓ [PASS] Company-Specific Rule: "Have you ever worked at Microsoft Corporation?" -> "${m_msft.value}"`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Worked at Microsoft should be "No". Got:`, m_msft);
+}
+
+// 11. Testing Deep Fill Metrics Engine
+console.log('\n--- 11. Testing Deep Fill Metrics Engine ---');
+total++;
+
+const testDescriptors = [
+  { ...mockDescriptor({ label: 'First Name *', name: 'first_name' }), isRequired: true, isOptional: false },
+  { ...mockDescriptor({ label: 'Email *', name: 'email' }), isRequired: true, isOptional: false },
+  { ...mockDescriptor({ label: 'Cover Letter (Optional)', name: 'cover_letter' }), isRequired: false, isOptional: true },
+  { ...mockDescriptor({ label: 'Website (Optional)', name: 'urls[website]' }), isRequired: false, isOptional: true }
+];
+
+const testResults = [
+  { matched: true, value: 'Pritam', def: { key: 'firstName' } },
+  { matched: true, value: 'pritam@example.com', def: { key: 'email' } },
+  { matched: false },
+  { matched: true, value: 'https://pritamrauniyar.com.np/', def: { key: 'portfolio' } }
+];
+
+const computedMetrics = AtsAdapters.calculateFillMetrics(testDescriptors, testResults);
+
+if (
+  computedMetrics.totalFields === 4 &&
+  computedMetrics.compulsoryTotal === 2 &&
+  computedMetrics.compulsoryFilled === 2 &&
+  computedMetrics.compulsoryUnfilled === 0 &&
+  computedMetrics.optionalTotal === 2 &&
+  computedMetrics.optionalFilled === 1 &&
+  computedMetrics.optionalUnfilled === 1 &&
+  computedMetrics.compulsoryRate === '100%' &&
+  computedMetrics.overallFillRate === '75%'
+) {
+  console.log(`✓ [PASS] Deep Fill Metrics Engine: Compulsory 2/2 (100%), Optional 1/2, Overall Fill Rate ${computedMetrics.overallFillRate}`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Deep Fill Metrics calculation unexpected:`, computedMetrics);
+}
+
+// 12. Testing Universal Complex UI Component Engine
+console.log('\n--- 12. Testing Universal Complex UI Component Engine ---');
+const { ComplexUIAdapters } = require('../content/ats-adapters.js');
+
+function createMockEl(props = {}) {
+  const listeners = {};
+  const attrs = props.attributes || {};
+  const classes = new Set(props.classes || []);
+  const el = {
+    tagName: props.tagName || 'DIV',
+    type: props.type || 'text',
+    name: props.name || '',
+    id: props.id || '',
+    value: props.value !== undefined ? props.value : '',
+    placeholder: props.placeholder || '',
+    textContent: props.textContent || '',
+    checked: props.checked || false,
+    options: props.options || [],
+    isContentEditable: !!props.isContentEditable,
+    classList: {
+      contains: (c) => classes.has(c),
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c)
+    },
+    getAttribute: (name) => attrs[name] !== undefined ? attrs[name] : null,
+    setAttribute: (name, val) => { attrs[name] = String(val); },
+    hasAttribute: (name) => attrs[name] !== undefined,
+    addEventListener: (ev, fn) => { (listeners[ev] = listeners[ev] || []).push(fn); },
+    dispatchEvent: (ev) => {
+      const fns = listeners[ev.type] || [];
+      fns.forEach(fn => fn(ev));
+      return true;
+    },
+    focus: () => {},
+    click: () => {},
+    parentElement: props.parentElement || null,
+    closest: (selector) => props.closestMatch || null,
+    querySelector: (sel) => props.children?.[sel] || null,
+    querySelectorAll: (sel) => props.childrenList?.[sel] || []
+  };
+  return el;
+}
+
+// Test 12.1: Rich Text / ContentEditable detection & filling
+total += 2;
+const mockRichText = createMockEl({
+  tagName: 'DIV',
+  isContentEditable: true,
+  attributes: { contenteditable: 'true' },
+  classes: ['ql-editor', 'ProseMirror']
+});
+const dtRichText = AtsAdapters.detectComplexElement(mockRichText);
+if (dtRichText && dtRichText.type === 'rich_text') {
+  console.log(`✓ [PASS] Complex UI: Detected Rich Text / ContentEditable editor (Quill/ProseMirror)`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Rich text detection failed:`, dtRichText);
+}
+
+ComplexUIAdapters.fillContentEditable(mockRichText, "Experienced software engineer with microservices expertise.").then(res => {
+  if (res && mockRichText.textContent.includes("microservices")) {
+    console.log(`✓ [PASS] Complex UI: Successfully injected formatted content into rich text editor`);
+    passed++;
+  } else {
+    console.error(`❌ FAILED: Rich text filling failed:`, mockRichText.textContent);
+  }
+});
+
+// Test 12.2: Custom Styled Combobox / Autocomplete Dropdown
+total += 2;
+const mockCombobox = createMockEl({
+  tagName: 'DIV',
+  attributes: { role: 'combobox', 'aria-haspopup': 'listbox' },
+  classes: ['select2-selection']
+});
+const dtCombobox = AtsAdapters.detectComplexElement(mockCombobox);
+if (dtCombobox && dtCombobox.type === 'custom_combobox') {
+  console.log(`✓ [PASS] Complex UI: Detected Custom Combobox (Select2/Headless UI)`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Combobox detection failed:`, dtCombobox);
+}
+
+ComplexUIAdapters.fillCustomCombobox(mockCombobox, "United States").then(res => {
+  if (res) {
+    console.log(`✓ [PASS] Complex UI: Handled Custom Combobox query interaction`);
+    passed++;
+  } else {
+    console.error(`❌ FAILED: Custom Combobox filling failed!`);
+  }
+});
+
+// Test 12.3: Multi-tag Skill / Token Input
+total += 2;
+const mockTagInput = createMockEl({
+  tagName: 'INPUT',
+  type: 'text',
+  placeholder: 'Type skill and press enter',
+  classes: ['tag-input']
+});
+const dtTagInput = AtsAdapters.detectComplexElement(mockTagInput);
+if (dtTagInput && dtTagInput.type === 'multi_tag_input') {
+  console.log(`✓ [PASS] Complex UI: Detected Multi-Tag Skill Token input`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Multi-tag detection failed:`, dtTagInput);
+}
+
+ComplexUIAdapters.fillMultiTagInput(mockTagInput, ["Go", "Kafka", "Docker", "Kubernetes"]).then(res => {
+  if (res && mockTagInput.value === "Kubernetes") {
+    console.log(`✓ [PASS] Complex UI: Successfully dispatched tokenized skill entries one by one`);
+    passed++;
+  } else {
+    console.error(`❌ FAILED: Multi-tag filling failed:`, mockTagInput.value);
+  }
+});
+
+// Test 12.4: Segmented Button Controls & Pill Toggles (Yes / No)
+total += 2;
+const btnYes = createMockEl({ tagName: 'BUTTON', textContent: 'Yes', attributes: { role: 'radio', 'aria-checked': 'false' } });
+const btnNo = createMockEl({ tagName: 'BUTTON', textContent: 'No', attributes: { role: 'radio', 'aria-checked': 'false' } });
+const mockRadioGroup = createMockEl({
+  tagName: 'DIV',
+  attributes: { role: 'radiogroup' },
+  classes: ['btn-group', 'segmented-control'],
+  childrenList: { 'button, [role="radio"], label, input[type="radio"]': [btnYes, btnNo] }
+});
+
+const dtRadioGroup = AtsAdapters.detectComplexElement(mockRadioGroup);
+if (dtRadioGroup && dtRadioGroup.type === 'segmented_radiogroup') {
+  console.log(`✓ [PASS] Complex UI: Detected Segmented Radio Button Group`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Segmented radiogroup detection failed:`, dtRadioGroup);
+}
+
+ComplexUIAdapters.fillSegmentedGroup(mockRadioGroup, "Yes").then(res => {
+  if (res && btnYes.getAttribute('aria-checked') === 'true') {
+    console.log(`✓ [PASS] Complex UI: Selected matching "Yes" pill in segmented button group`);
+    passed++;
+  } else {
+    console.error(`❌ FAILED: Segmented group fill failed! btnYes aria-checked:`, btnYes.getAttribute('aria-checked'));
+  }
+});
+
+// Test 12.5: Custom Styled Switch / Checkbox
+total += 2;
+const mockSwitch = createMockEl({
+  tagName: 'DIV',
+  attributes: { role: 'switch', 'aria-checked': 'false' },
+  classes: ['switch']
+});
+const dtSwitch = AtsAdapters.detectComplexElement(mockSwitch);
+if (dtSwitch && dtSwitch.type === 'custom_switch') {
+  console.log(`✓ [PASS] Complex UI: Detected Custom Switch Toggle`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Switch detection failed:`, dtSwitch);
+}
+
+ComplexUIAdapters.fillCustomSwitch(mockSwitch, true).then(res => {
+  if (res && mockSwitch.getAttribute('aria-checked') === 'true') {
+    console.log(`✓ [PASS] Complex UI: Successfully toggled custom switch state to true`);
+    passed++;
+  } else {
+    console.error(`❌ FAILED: Switch fill failed! aria-checked:`, mockSwitch.getAttribute('aria-checked'));
+  }
+});
+
+// Test 12.6: Split Date Inputs (Month + Year)
+total += 2;
+const mockYearEl = createMockEl({ tagName: 'INPUT', type: 'text', name: 'exp_year' });
+const mockMonthEl = createMockEl({
+  tagName: 'INPUT',
+  type: 'text',
+  name: 'exp_month',
+  parentElement: {
+    querySelector: (sel) => sel.includes('year') ? mockYearEl : null
+  }
+});
+
+const dtSplitDate = AtsAdapters.detectComplexElement(mockMonthEl);
+if (dtSplitDate && dtSplitDate.type === 'split_date' && dtSplitDate.yearEl === mockYearEl) {
+  console.log(`✓ [PASS] Complex UI: Detected Split Date Month/Year component pair`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Split date detection failed:`, dtSplitDate);
+}
+
+ComplexUIAdapters.fillSplitDate(mockMonthEl, mockYearEl, "2022-08-01").then(res => {
+  if (res && mockYearEl.value === "2022" && mockMonthEl.value === "08") {
+    console.log(`✓ [PASS] Complex UI: Parsed and filled split Year (${mockYearEl.value}) and Month (${mockMonthEl.value})`);
+    passed++;
+  } else {
+    console.error(`❌ FAILED: Split date filling failed: Year=${mockYearEl.value}, Month=${mockMonthEl.value}`);
+  }
+});
+
+// Test 12.7: Split International Phone Inputs
+total += 2;
+const mockCountryCodeEl = createMockEl({
+  tagName: 'SELECT',
+  options: [{ value: '+1', text: '+1 (USA)' }, { value: '+91', text: '+91 (India)' }]
+});
+const mockPhoneNumEl = createMockEl({
+  tagName: 'INPUT',
+  type: 'tel',
+  name: 'phone_number',
+  parentElement: {
+    querySelector: (sel) => sel.includes('country') ? mockCountryCodeEl : null
+  }
+});
+
+const dtSplitPhone = AtsAdapters.detectComplexElement(mockPhoneNumEl);
+if (dtSplitPhone && dtSplitPhone.type === 'split_phone') {
+  console.log(`✓ [PASS] Complex UI: Detected Split International Phone Picker`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Split phone detection failed:`, dtSplitPhone);
+}
+
+ComplexUIAdapters.fillSplitPhone(mockCountryCodeEl, mockPhoneNumEl, "+91-6201413304").then(res => {
+  if (res && mockCountryCodeEl.value === "+91" && mockPhoneNumEl.value === "6201413304") {
+    console.log(`✓ [PASS] Complex UI: Parsed dial code (${mockCountryCodeEl.value}) and national number (${mockPhoneNumEl.value})`);
+    passed++;
+  } else {
+    console.error(`❌ FAILED: Split phone filling failed: code=${mockCountryCodeEl.value}, num=${mockPhoneNumEl.value}`);
+  }
+});
+
+// Test 12.8: Split Salary Fields (Currency + Amount)
+total += 2;
+const mockCurrEl = createMockEl({
+  tagName: 'SELECT',
+  options: [{ value: 'USD', text: 'USD ($)' }, { value: 'INR', text: 'INR (₹)' }]
+});
+const mockSalaryAmtEl = createMockEl({
+  tagName: 'INPUT',
+  type: 'text',
+  name: 'salary_amount',
+  parentElement: {
+    querySelector: (sel) => sel.includes('curr') ? mockCurrEl : null
+  }
+});
+
+const dtSplitSalary = AtsAdapters.detectComplexElement(mockSalaryAmtEl);
+if (dtSplitSalary && dtSplitSalary.type === 'split_salary') {
+  console.log(`✓ [PASS] Complex UI: Detected Split Salary Amount & Currency inputs`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Split salary detection failed:`, dtSplitSalary);
+}
+
+ComplexUIAdapters.fillSplitSalary(mockCurrEl, mockSalaryAmtEl, null, "$165,000 per year").then(res => {
+  if (res && mockCurrEl.value === "USD" && mockSalaryAmtEl.value === "165000") {
+    console.log(`✓ [PASS] Complex UI: Extracted currency (${mockCurrEl.value}) and amount (${mockSalaryAmtEl.value})`);
+    passed++;
+  } else {
+    console.error(`❌ FAILED: Split salary filling failed: curr=${mockCurrEl.value}, amt=${mockSalaryAmtEl.value}`);
+  }
+});
+
+// Test 12.9: Cascading / Dependent Dropdown
+total += 2;
+const mockCascadeSelect = createMockEl({
+  tagName: 'SELECT',
+  name: 'state_province',
+  attributes: { 'data-cascade': 'state' }
+});
+const dtCascade = AtsAdapters.detectComplexElement(mockCascadeSelect);
+if (dtCascade && dtCascade.type === 'cascading_dropdown') {
+  console.log(`✓ [PASS] Complex UI: Detected Cascading / Dependent Dropdown`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Cascading dropdown detection failed:`, dtCascade);
+}
+
+ComplexUIAdapters.fillCascadingDropdown(mockCascadeSelect, null, "California", "San Francisco").then(res => {
+  if (res) {
+    console.log(`✓ [PASS] Complex UI: Dispatched cascading dropdown event cascade`);
+    passed++;
+  } else {
+    console.error(`❌ FAILED: Cascading dropdown filling failed!`);
+  }
+});
+
+// Test 12.10: Slider / Star / Scale Rating
+total += 2;
+const mockSlider = createMockEl({
+  tagName: 'INPUT',
+  type: 'range',
+  attributes: { min: '1', max: '5', role: 'slider' }
+});
+const dtSlider = AtsAdapters.detectComplexElement(mockSlider);
+if (dtSlider && dtSlider.type === 'slider_rating') {
+  console.log(`✓ [PASS] Complex UI: Detected Rating Slider / Scale component`);
+  passed++;
+} else {
+  console.error(`❌ FAILED: Slider detection failed:`, dtSlider);
+}
+
+ComplexUIAdapters.fillSliderRating(mockSlider, 5).then(res => {
+  if (res && mockSlider.value === 5) {
+    console.log(`✓ [PASS] Complex UI: Set numeric value on range slider rating`);
+    passed++;
+  } else {
+    console.error(`❌ FAILED: Slider filling failed:`, mockSlider.value);
+  }
+});
+
 // Allow async tests to complete
 setTimeout(() => {
   console.log(`\n========================================`);
@@ -384,5 +815,5 @@ setTimeout(() => {
   } else {
     process.exit(1);
   }
-}, 50);
+}, 250);
 

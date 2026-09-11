@@ -1,7 +1,9 @@
 // ApplyPilot AI - Background Service Worker (Manifest V3)
 // Ephemeral, Stateless, Secure API Proxy for Gemini Free Tier
 
-importScripts('../lib/storage.js', '../lib/pdf-extractor.js', '../lib/gemini-service.js', '../lib/audit-logger.js');
+if (typeof importScripts !== 'undefined') {
+  importScripts('../lib/storage.js', '../lib/pdf-extractor.js', '../lib/gemini-service.js', '../lib/audit-logger.js');
+}
 
 // 1. Extension Installation & Setup
 chrome.runtime.onInstalled.addListener(async () => {
@@ -65,7 +67,100 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
-// 3. Message Passing Router
+// 2b. Background Intelligence Compiler & Debounced Queue Processor
+let refinementTimer = null;
+
+function scheduleBackgroundRefinement(delayMs = 25000) {
+  if (refinementTimer) clearTimeout(refinementTimer);
+  refinementTimer = setTimeout(async () => {
+    await processBackgroundSyncQueue();
+  }, delayMs);
+}
+
+async function processBackgroundSyncQueue() {
+  try {
+    const profile = await StorageService.getProfile();
+    const apiKey = profile.settings?.geminiApiKey;
+    const pendingItems = await StorageService.getPendingSyncQueue();
+
+    if (!pendingItems || pendingItems.length === 0) return;
+
+    // Clear queue so incoming items can gather cleanly
+    profile.pendingSyncQueue = [];
+    await StorageService.clearPendingSyncQueue();
+
+    if (!apiKey) {
+      console.log("[ApplyPilot Background] Telemetry queued. Background Gemini compiler idle (no API key configured).");
+      return;
+    }
+
+    console.log(`[ApplyPilot Background] Running asynchronous AI knowledge compiler on ${pendingItems.length} items...`);
+    const result = await GeminiService.refineKnowledgeBase({
+      pendingItems,
+      profile,
+      apiKey
+    });
+
+    if (result) {
+      // 1. Update Dynamic Fields
+      if (Array.isArray(result.updatedFields) && result.updatedFields.length > 0) {
+        profile.dynamicFields = profile.dynamicFields || [];
+        for (const uf of result.updatedFields) {
+          const idx = profile.dynamicFields.findIndex(f => f.canonicalKey === uf.canonicalKey || f.id === uf.id);
+          if (idx >= 0) {
+            profile.dynamicFields[idx] = {
+              ...profile.dynamicFields[idx],
+              ...uf,
+              aliases: Array.from(new Set([...(profile.dynamicFields[idx].aliases || []), ...(uf.aliases || [])]))
+            };
+          } else {
+            profile.dynamicFields.push({
+              id: uf.id || ("df-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6)),
+              category: uf.category || "Custom / Learned",
+              canonicalKey: uf.canonicalKey || `custom.${Date.now()}`,
+              label: uf.label || "Custom Field",
+              aliases: uf.aliases || [],
+              value: uf.value || "",
+              companyRules: uf.companyRules || null,
+              stats: { timesSuggested: 0, timesAccepted: 0, timesCorrected: 0, confidence: 1.0 }
+            });
+          }
+        }
+      }
+
+      // 2. Update Recommended Ignored Fields
+      if (Array.isArray(result.recommendedIgnored) && result.recommendedIgnored.length > 0) {
+        profile.ignoredOptionalFields = profile.ignoredOptionalFields || [];
+        for (const ign of result.recommendedIgnored) {
+          const label = (typeof ign === "string" ? ign : (ign.label || ign.fieldLabel || "")).trim();
+          if (label && !profile.ignoredOptionalFields.some(f => f.label.toLowerCase() === label.toLowerCase())) {
+            profile.ignoredOptionalFields.push({
+              id: "ign-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6),
+              label: label,
+              pattern: label.toLowerCase(),
+              keywords: [label.toLowerCase()],
+              ignoredAt: new Date().toISOString()
+            });
+          }
+        }
+      }
+
+      await StorageService.saveProfile(profile);
+
+      await AuditLogger.log({
+        actionType: "background_sync",
+        portalType: "ai_compiler",
+        status: "success",
+        details: `Background AI compiler refined ${result.updatedFields?.length || 0} fields and ${result.recommendedIgnored?.length || 0} ignore rules.`
+      });
+      console.log("[ApplyPilot Background] AI compilation complete and saved.");
+    }
+  } catch (err) {
+    console.warn("[ApplyPilot Background] Error during background refinement:", err);
+  }
+}
+
+// 3. Message Dispatcher
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   (async () => {
     try {
@@ -79,6 +174,59 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         case "SAVE_PROFILE": {
           await StorageService.saveProfile(request.profile);
           sendResponse({ success: true });
+          break;
+        }
+
+        case "QUEUE_BACKGROUND_SYNC": {
+          const queued = await StorageService.queuePendingSync(request.item);
+          scheduleBackgroundRefinement(25000);
+          sendResponse({ success: true, queued });
+          break;
+        }
+
+        case "GET_PENDING_SYNC_QUEUE": {
+          const queue = await StorageService.getPendingSyncQueue();
+          sendResponse({ success: true, queue });
+          break;
+        }
+
+        case "TRIGGER_BACKGROUND_SYNC_NOW": {
+          await processBackgroundSyncQueue();
+          sendResponse({ success: true });
+          break;
+        }
+
+        case "RECORD_FIELD_INTERACTION": {
+          const res = await StorageService.recordFieldInteraction(request.fieldLabel, {
+            filled: request.filled,
+            value: request.value,
+            isRequired: request.isRequired
+          });
+          sendResponse({ success: true, res });
+          break;
+        }
+
+        case "ADD_DYNAMIC_FIELD": {
+          const field = await StorageService.addDynamicField(request.field);
+          sendResponse({ success: true, field });
+          break;
+        }
+
+        case "UPDATE_DYNAMIC_FIELD": {
+          const field = await StorageService.updateDynamicField(request.id, request.updates);
+          sendResponse({ success: true, field });
+          break;
+        }
+
+        case "DELETE_DYNAMIC_FIELD": {
+          const fields = await StorageService.deleteDynamicField(request.id);
+          sendResponse({ success: true, fields });
+          break;
+        }
+
+        case "GET_DYNAMIC_FIELDS": {
+          const dynamicFields = await StorageService.getDynamicFields();
+          sendResponse({ success: true, dynamicFields });
           break;
         }
 
@@ -146,6 +294,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
 
         case "TEST_API_KEY": {
+          const profile = await StorageService.getProfile();
+          const key = request.apiKey || profile.settings?.geminiApiKey;
+          const result = await GeminiService.testApiKey(key);
+          sendResponse(result);
+          break;
+        }
+
+        case "DISCOVER_MODELS": {
           const profile = await StorageService.getProfile();
           const key = request.apiKey || profile.settings?.geminiApiKey;
           const result = await GeminiService.testApiKey(key);
@@ -238,3 +394,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   return true; // Keep message channel open for async response
 });
+
+if (typeof module !== 'undefined') {
+  module.exports = { scheduleBackgroundRefinement, processBackgroundSyncQueue };
+}

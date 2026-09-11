@@ -18,7 +18,7 @@
         </div>
         <div>
           <h1 class="ap-title">ApplyPilot <span class="ap-badge-ai">AI</span></h1>
-          <p class="ap-subtitle">Universal Career Application Autofill</p>
+          <p class="ap-subtitle">Universal Job Application Engine &bull; <a href="https://pritamrauniyar.com.np/" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 600;">by Pritam Rauniyar ↗</a></p>
         </div>
       </div>
       <div style="display: flex; gap: 6px; align-items: center;">
@@ -36,9 +36,9 @@
     <!-- Navigation Tabs -->
     <nav class="ap-nav">
       <button class="ap-tab active" data-tab="tab-quickfill" title="Autofill Current Page">⚡ Fill</button>
+      <button class="ap-tab" data-tab="tab-dynamic" title="Dynamic Knowledge Base (AI Categorized)">🧠 Knowledge</button>
       <button class="ap-tab" data-tab="tab-profile" title="Candidate Profile Details">👤 Profile</button>
       <button class="ap-tab" data-tab="tab-presets" title="Standard Application Presets">📋 Presets</button>
-      <button class="ap-tab" data-tab="tab-custom" title="Custom Fields">🏷️ Custom</button>
       <button class="ap-tab" data-tab="tab-resume" title="Resume AI Parser">📄 Resume</button>
       <button class="ap-tab" data-tab="tab-logs" id="tab-btn-logs" title="Application Audit Log & Telemetry">📊 Activity</button>
       <button class="ap-tab" data-tab="tab-settings" id="tab-btn-ai-settings" title="Gemini AI Key & Settings">⚙️ AI Key</button>
@@ -270,37 +270,58 @@
       </div>
     </div>
 
-    <!-- Tab 4: Custom Fields & Learning Memory -->
-    <div class="ap-tab-content" id="tab-custom">
-      <div class="ap-card">
-        <h4>Add Custom Field</h4>
-        <div class="ap-input-group">
-          <label>Field Name / Label</label>
-          <input type="text" id="cf-label" placeholder="e.g., Notice Period, Go Experience">
+    <!-- Tab 4: Dynamic Knowledge Store (AI Categorized, Nested & Extensible) -->
+    <div class="ap-tab-content" id="tab-dynamic">
+      <div class="ap-card" style="padding: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h4 style="margin: 0;">Dynamic Knowledge Store</h4>
+          <span class="ap-badge" id="dynamic-fields-count">0 Fields</span>
         </div>
-        <div class="ap-input-group">
-          <label>Value / Answer</label>
-          <textarea id="cf-value" rows="2" placeholder="The exact answer to fill..."></textarea>
+        <p class="ap-text-muted" style="margin-bottom: 10px; font-size: 11px;">
+          All personal entities, nested details (e.g. College $\rightarrow$ Degree/Major), and company rules are organized here. Automatically expands as you apply.
+        </p>
+        <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+          <input type="text" id="df-search-input" placeholder="🔍 Search fields, aliases, values..." style="flex: 1; font-size: 11.5px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;">
+          <button type="button" class="ap-btn ap-btn-outline ap-btn-sm" id="btn-toggle-add-df" style="font-size: 11px;">
+            ➕ Add Field
+          </button>
         </div>
-        <div class="ap-input-group">
-          <label>Matching Keywords (comma separated)</label>
-          <input type="text" id="cf-keywords" placeholder="e.g., notice, availability, start date">
-        </div>
-        <button class="ap-btn ap-btn-primary" id="btn-add-custom-field">+ Add Custom Field</button>
-      </div>
 
-      <div class="ap-card">
-        <h4>Active Custom Fields (<span id="custom-fields-count">0</span>)</h4>
-        <div id="custom-fields-list" class="ap-fields-list">
-          <!-- Populated by JS -->
+        <!-- Collapsible Add Dynamic Field Form -->
+        <div id="df-add-form" style="display: none; background: var(--bg-hover); padding: 10px; border-radius: 6px; margin-bottom: 12px; border: 1px solid var(--border);">
+          <div style="font-weight: 600; font-size: 12px; margin-bottom: 6px;">Add Dynamic Knowledge Entity</div>
+          <div class="ap-input-group">
+            <label style="font-size: 10.5px;">Label / Concept Name</label>
+            <input type="text" id="df-new-label" placeholder="e.g., Higher Education, Former Employee">
+          </div>
+          <div class="ap-input-group">
+            <label style="font-size: 10.5px;">Category</label>
+            <select id="df-new-category" style="font-size: 11px;">
+              <option value="Education">🎓 Education</option>
+              <option value="Work History">💼 Work History</option>
+              <option value="Company-Specific">🏢 Company-Specific</option>
+              <option value="General Application">🌐 General Application</option>
+              <option value="Contact & Links">🔗 Contact & Links</option>
+              <option value="Custom / Learned">🏷️ Custom / Learned</option>
+            </select>
+          </div>
+          <div class="ap-input-group">
+            <label style="font-size: 10.5px;">Primary Answer / Value</label>
+            <textarea id="df-new-value" rows="2" placeholder="The primary answer to fill..."></textarea>
+          </div>
+          <div class="ap-input-group">
+            <label style="font-size: 10.5px;">Synonyms / Aliases (comma separated)</label>
+            <input type="text" id="df-new-aliases" placeholder="e.g., higher degree, college, university, school name">
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button type="button" class="ap-btn ap-btn-primary ap-btn-sm" id="btn-submit-add-df" style="flex: 1; font-size: 11px;">Save to Knowledge Base</button>
+            <button type="button" class="ap-btn ap-btn-outline ap-btn-sm" id="btn-cancel-add-df" style="font-size: 11px;">Cancel</button>
+          </div>
         </div>
-      </div>
 
-      <div class="ap-card">
-        <h4>🧠 AI Feedback Learning Memory (<span id="learned-memory-count">0</span>)</h4>
-        <p class="ap-text-muted" style="margin-bottom: 8px;">Questions you approved or edited via the AI suggestion card are remembered here for all future applications.</p>
-        <div id="learned-memory-list" class="ap-fields-list">
-          <!-- Populated by JS -->
+        <!-- Dynamic Grouped Container -->
+        <div id="dynamic-categories-container" style="display: flex; flex-direction: column; gap: 10px;">
+          <!-- Dynamically populated grouped by AI categories -->
         </div>
       </div>
     </div>
@@ -381,7 +402,9 @@
           <h4 style="margin: 0;">Application Telemetry</h4>
           <span class="ap-tag" id="log-stat-success-rate">100% Success</span>
         </div>
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center;">
+
+        <!-- Primary KPI Matrix -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; margin-bottom: 8px;">
           <div style="background: var(--bg-hover); padding: 8px; border-radius: 6px;">
             <div style="font-size: 16px; font-weight: 700; color: var(--primary);" id="log-stat-autofills">0</div>
             <div style="font-size: 10px; color: var(--text-muted);">Autofills</div>
@@ -395,7 +418,32 @@
             <div style="font-size: 10px; color: var(--text-muted);">Errors</div>
           </div>
         </div>
-        <div style="display: flex; gap: 6px; margin-top: 10px;">
+
+        <!-- Deep Fill Breakdown: Compulsory vs Optional -->
+        <div style="background: var(--bg-hover); padding: 8px 10px; border-radius: 6px; font-size: 11px; margin-bottom: 10px;">
+          <div style="font-weight: 600; margin-bottom: 4px;">📊 Deep Fill Diagnostics:</div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+            <span class="ap-text-muted">Compulsory (Required):</span>
+            <span><strong id="log-stat-compulsory" style="color: #10b981;">0 Filled</strong> / <span id="log-stat-compulsory-unfilled" style="color: var(--text-muted);">0 Unfilled</span></span>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+            <span class="ap-text-muted">Optional Fields:</span>
+            <span><strong id="log-stat-optional" style="color: var(--primary);">0 Filled</strong> / <span id="log-stat-optional-unfilled" style="color: var(--text-muted);">0 Skipped</span></span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span class="ap-text-muted">User Corrections Learned:</span>
+            <span id="log-stat-corrections" style="font-weight: 600; color: #8b5cf6;">0</span>
+          </div>
+        </div>
+
+        <!-- Background Sync Action Button -->
+        <div style="margin-bottom: 10px;">
+          <button type="button" class="ap-btn ap-btn-outline ap-btn-sm" id="btn-sync-ai-memory" style="width: 100%; font-size: 11px; display: flex; justify-content: center; align-items: center; gap: 6px;">
+            <span>⚡ Sync & Refine Knowledge Base with AI Now</span>
+          </button>
+        </div>
+
+        <div style="display: flex; gap: 6px;">
           <button type="button" class="ap-btn ap-btn-primary ap-btn-sm" id="btn-export-logs-json" style="flex: 1; font-size: 11px;">
             📥 Export JSON
           </button>
@@ -415,9 +463,9 @@
           <span class="ap-badge" id="ignored-fields-count">0</span>
         </div>
         <p class="ap-text-muted" style="margin-bottom: 8px; font-size: 11px;">
-          Fields you skipped or marked as ignored will not be autofilled or prompted on future application portals.
+          Fields skipped or predicted to be ignored by the feedback loop will not prompt on future applications.
         </p>
-        <div id="ignored-fields-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 120px; overflow-y: auto;">
+        <div id="ignored-fields-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto;">
           <div class="ap-text-muted" style="font-size: 11px;">No ignored optional fields yet.</div>
         </div>
       </div>
@@ -434,10 +482,15 @@
       </div>
     </div>
 
-    <!-- Global Footer Save Bar -->
-    <footer class="ap-footer">
-      <div id="save-status" class="ap-save-status">All changes saved locally</div>
-      <button class="ap-btn ap-btn-primary" id="btn-save-profile">Save Profile</button>
+    <!-- Global Footer Save Bar with Creator Branding -->
+    <footer class="ap-footer" style="flex-direction: column; gap: 6px; padding: 10px 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+        <div id="save-status" class="ap-save-status">All changes saved locally</div>
+        <button class="ap-btn ap-btn-primary" id="btn-save-profile">Save Profile</button>
+      </div>
+      <div style="font-size: 10px; color: var(--text-muted); text-align: center; border-top: 1px solid var(--border); padding-top: 4px; width: 100%;">
+        ApplyPilot AI &bull; Created by <a href="https://pritamrauniyar.com.np/" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 600;">Pritam Rauniyar ↗</a>
+      </div>
     </footer>
   </div>
 
