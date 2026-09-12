@@ -89,7 +89,7 @@ const PdfExtractor = {
       }
     }
 
-    let result = textPieces.join(' ')
+    const result = textPieces.join(' ')
       .replace(/\\(\d{3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)))
       .replace(/\\([()\\])/g, '$1')
       .replace(/\s+/g, ' ')

@@ -3,17 +3,19 @@
 <div align="center">
 
 [![Manifest V3](https://img.shields.io/badge/Chrome%20Extension-Manifest%20V3-blue.svg?style=for-the-badge&logo=googlechrome)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Google Gemini API](https://img.shields.io/badge/AI-Google%20Gemini%203%20Flash-4285F4.svg?style=for-the-badge&logo=googlegemini)](https://ai.google.dev/)
-[![Test Coverage](https://img.shields.io/badge/Test%20Coverage-96.94%25%20Line%20Coverage-success.svg?style=for-the-badge&logo=node.js)](test/)
-[![Tests Passing](https://img.shields.io/badge/Tests-54%2F54%20Passed%20(100%25)-brightgreen.svg?style=for-the-badge&logo=checkmarx)](test/)
-[![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local%20First-orange.svg?style=for-the-badge&logo=privacy)]()
+[![Google Gemini API](https://img.shields.io/badge/AI-Google%20Gemini%20(your%20key)-4285F4.svg?style=for-the-badge&logo=googlegemini)](https://ai.google.dev/)
+[![Test Coverage](https://img.shields.io/badge/Line%20Coverage-95.98%25-success.svg?style=for-the-badge&logo=node.js)](test/)
+[![Tests Passing](https://img.shields.io/badge/Tests-73%2F73%20Passed-brightgreen.svg?style=for-the-badge&logo=checkmarx)](test/)
+[![Privacy](https://img.shields.io/badge/Storage-Local%20First-orange.svg?style=for-the-badge&logo=privacy)](PRIVACY.md)
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero%20NPM%20Bloat-purple.svg?style=for-the-badge)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 
 <p align="center">
   <strong>Universal, privacy-first autonomous job application autofill and career copilot.</strong><br>
   Built for candidates across <em>all professions, industries, and experience levels worldwide</em>.<br>
-  Zero data exfiltration. Zero monthly subscriptions. Sub-50ms deterministic autofill with an asynchronous Gemini AI self-learning feedback loop.
+  No ApplyPilot servers, no subscriptions. Deterministic local autofill, with an optional
+  asynchronous Gemini feedback loop that runs only on your own API key.<br>
+  <a href="PRIVACY.md">Read exactly what is stored and what is sent &rarr;</a>
 </p>
 
 <p align="center">
@@ -44,8 +46,10 @@ Job seekers globally spend **hundreds of hours** filling out repetitive, fragile
 **ApplyPilot AI** was engineered from first principles as an **enterprise-grade, local-first client engine**:
 - **Universal Scope**: Not restricted to Software Engineering — optimized for Product Management, Healthcare, Legal, Design, Marketing, Finance, Operations, Data, and Executive applications globally.
 - **Zero-Latency Deterministic Execution**: Live autofill runs in **sub-50ms** client-side through weighted multi-signal heuristics and fuzzy token matching, completely decoupled from LLM latency.
-- **Asynchronous AI Self-Learning Feedback Loop**: Google's **Gemini 3 Flash** processes unfamiliar questions, categorizes entities, maps synonyms/aliases, and learns company-specific answers **in the background** without blocking user flow.
-- **100% Local-First Privacy**: All profile data, telemetry logs, and learned memory are stored exclusively in your browser's local sandbox (`chrome.storage.local`). Direct encrypted HTTPS connections only to your personal Google AI Studio key.
+- **Asynchronous AI Self-Learning Feedback Loop**: Your chosen **Gemini** model processes unfamiliar questions, categorizes entities, maps synonyms/aliases, and learns company-specific answers **in the background** without blocking user flow.
+- **Local-First Storage**: Profile data, activity logs, and learned memory are stored exclusively in your browser's local sandbox (`chrome.storage.local`). There is no ApplyPilot server and no account.
+- **One External Destination, Under Your Control**: AI features call Google's Generative Language API directly, authenticated with *your* key. That means resume text, the question being answered, and relevant profile context do leave your browser when you use them — see [PRIVACY.md](PRIVACY.md) for the exact payloads. Configure no key and the extension makes no network requests at all.
+- **Sensitive Fields Are Off-Limits**: ID numbers, dates of birth, bank and card details, salary history and passwords are never read, stored, logged, or transmitted — regardless of settings.
 
 ---
 
@@ -82,7 +86,7 @@ graph TD
         SW["Service Worker (background/service-worker.js)"]
         GeminiService["Gemini AI Client & Model Discovery (lib/gemini-service.js)"]
         JSONHealer["Multi-Pass Resilient JSON Self-Repair Engine"]
-        GoogleAI["Google Generative Language API (gemini-3.6-flash / v1beta)"]
+        GoogleAI["Google Generative Language API (model auto-discovered via ListModels)"]
     end
 
     UI_Tier <--> Storage_Tier
@@ -235,53 +239,61 @@ ApplyPilot AI incorporates an enterprise **Audit Logger** (`lib/audit-logger.js`
   - User Corrections Learned.
   - Overall Application Success Rate percentage.
 - **1-Click Export**: Full telemetry export in standard **JSON** or **CSV** formats for candidate personal tracking or spreadsheet analysis.
-- **Zero Cloud Exfiltration**: Telemetry data never leaves the candidate's browser.
+- **Local Telemetry**: The activity log is stored only in your browser and is never sent anywhere. Field values in it are masked unless you opt in. The separate background knowledge compiler *does* send your saved answers and corrections to Google's API when enabled — turn it off in Settings → Privacy to keep learning fully on-device.
 
 ---
 
-## 🧪 Production-Grade Test Suite & Quality Assurance
+## 🧪 Test Suite & Quality Assurance
 
-Quality is guaranteed through a native, zero-dependency Node 22 test suite (`node --test --experimental-test-coverage`). The test suite simulates full Chrome Extension APIs, DOM accessibility trees, and event loops using lightweight, decoupled virtual environments.
+A native, zero-dependency Node test suite (`node --test`) covering all nine modules.
+Chrome extension APIs, the DOM, and the network layer are simulated with lightweight
+in-process mocks.
 
-### Test Coverage Results (All 9 Modules >95%)
+**Current status: 73/73 tests passing, 95.98% line coverage / 94.12% function coverage.**
 
-```
-==========================================================================================================================================
-Component                  Source File                     Line Coverage     Function Coverage   Test Suite File
-==========================================================================================================================================
-Storage Service            lib/storage.js                  100.00%           100.00%             test/test-storage.js
-Audit Logger               lib/audit-logger.js             100.00%           100.00%             test/test-audit-logger.js
-PDF Stream Extractor       lib/pdf-extractor.js            100.00%           100.00%             test/test-pdf-extractor.js
-Popup UI Engine            popup/popup.js                  100.00%           100.00%             test/test-ui-scripts.js
-Sidepanel Companion        sidepanel/sidepanel.js          100.00%           100.00%             test/test-ui-scripts.js
-Background Service Worker  background/service-worker.js     98.50%            90.00%             test/test-service-worker.js
-ATS Adapters & Matcher     content/ats-adapters.js          98.48%            95.24%             test/test-ats-adapters.js
-Gemini AI Client           lib/gemini-service.js            96.99%            86.67%             test/test-gemini-service.js
-Content Engine             content/content.js               95.04%            96.30%             test/test-content-engine.js
-==========================================================================================================================================
-OVERALL PROJECT TOTAL      9 Modules Combined               97.65%            95.78%             51 Suites Passed (0 Failures)
-==========================================================================================================================================
+### Running the Test Suite
+
+```bash
+npm test              # run everything
+npm run coverage      # run with the V8 coverage report
+npm run lint          # ESLint across all runtime targets
+npm run check         # lint + test
 ```
 
-### Running the Test Suite Locally
+Run a single suite:
 
-Execute the complete global suite across all 9 modules with coverage reporting:
-
-```powershell
-node --test --experimental-test-coverage test/test-storage.js test/test-audit-logger.js test/test-pdf-extractor.js test/test-gemini-service.js test/test-ats-adapters.js test/test-matcher.js test/test-service-worker.js test/test-content-engine.js test/test-ui-scripts.js
+```bash
+node --test test/test-storage.js
+node --test test/test-content-engine.js
+node --test "test/test-ats-adapters.js" "test/test-matcher.js"
 ```
 
-Or test specific domains:
-```powershell
-# UI & Sidepanel
-node --test --experimental-test-coverage test/test-ui-scripts.js
+> On Windows, quote the glob (`node --test "test/*.js"`) — an unquoted `test/` directory
+> argument is not expanded and will fail to resolve.
 
-# Content Script & Form Automation Engine
-node --test --experimental-test-coverage test/test-content-engine.js
+### Coverage by Module
 
-# ATS Adapters & Heuristic Matchers
-node --test --experimental-test-coverage test/test-ats-adapters.js test/test-matcher.js
-```
+| Module | Source | Line | Branch | Func |
+|---|---|---|---|---|
+| Sidepanel Companion | `sidepanel/sidepanel.js` | 100.00% | 58.57% | 100.00% |
+| Audit Logger | `lib/audit-logger.js` | 97.61% | 94.90% | 93.33% |
+| Storage Service | `lib/storage.js` | 97.57% | 79.01% | 90.91% |
+| Popup UI Engine | `popup/popup.js` | 96.52% | 61.22% | 97.67% |
+| PDF Stream Extractor | `lib/pdf-extractor.js` | 96.12% | 86.67% | 100.00% |
+| ATS Adapters & Matcher | `content/ats-adapters.js` | 95.81% | 78.99% | 90.00% |
+| Content Engine | `content/content.js` | 92.80% | 65.60% | 93.06% |
+| Gemini AI Client | `lib/gemini-service.js` | 91.40% | 56.76% | 85.29% |
+| Background Service Worker | `background/service-worker.js` | 90.08% | 74.56% | 90.00% |
+| **Overall** | **9 modules** | **95.98%** | **75.08%** | **94.12%** |
+
+### Known Testing Limitations
+
+Being honest about what these numbers do and do not prove:
+
+- **Branch coverage is 75%**, well below line coverage. Error and fallback paths are the least exercised.
+- **The suite is fully self-mocked.** It validates internal logic against hand-written DOM and Chrome API stubs — not against real Greenhouse, Lever, Workday or Ashby markup. Adapter changes should still be verified manually against a live form.
+- **No end-to-end browser tests.** There is no Puppeteer/Playwright layer driving a real Chrome instance.
+- **The PDF extractor is a heuristic stream parser**, not a full PDF implementation. It handles FlateDecode with PNG predictors and `/ToUnicode` CMaps, but scanned/raster PDFs and exotic encodings still fall back to the "paste resume text" path.
 
 ---
 
@@ -322,12 +334,30 @@ ApplyPilot AI features dedicated adapters and heuristic detectors tuned for all 
 ### 2. Configure Your Free Gemini API Key (100% Free Quota)
 1. Generate your free API key at [Google AI Studio](https://aistudio.google.com/app/apikey).
 2. Click the ApplyPilot icon, go to **⚙️ AI Key**, paste your key, and click **Save Profile**.
-3. Click **⚡ Test API Connection** to verify connection to `gemini-3.6-flash`.
+3. Click **⚡ Test API Connection**. ApplyPilot queries ListModels and populates the dropdown with the models your key can actually use; leave it on *Auto-detect* to always take the best available.
 
-### 3. Ingest Your Resume
+### 3. Enter Your Details
+
+ApplyPilot ships with a **completely empty profile** — it contains nobody's data and
+autofill stays inert until you fill it in. Either:
+
+- Open the **👤 Profile** tab and enter your details, or
+- Use the **📄 Resume** tab to parse a resume and populate the profile automatically.
+
+Saving a name and email marks onboarding complete and enables autofill.
+
+> Want to see it work before entering anything real? **Settings → Your Data → "Load sample profile"**
+> fills the profile with obviously-fake demo data you can wipe with "Erase all my data".
+
+### 4. Ingest Your Resume
 1. In the extension popup, go to **📄 Resume**.
 2. Drag & drop your PDF resume.
 3. ApplyPilot's local client-side extractor parses text instantly, sends it to Gemini for structured extraction, and auto-populates your profile, sequential experience items, and dynamic skills.
+
+### 5. Review Your Privacy Settings
+
+Value capture and value logging are **off by default**. Turn them on, or disable the
+Gemini knowledge sync entirely, under **⚙️ AI Key → Privacy**. See [PRIVACY.md](PRIVACY.md).
 
 ---
 
@@ -336,11 +366,16 @@ ApplyPilot AI features dedicated adapters and heuristic detectors tuned for all 
 ```
 ApplyPilot AI/
 ├── manifest.json              # Chrome Extension Manifest V3 configuration
+├── package.json               # Test/lint scripts (devDependencies only - the extension ships dependency-free)
+├── eslint.config.js           # Flat ESLint config, one block per runtime target
+├── PRIVACY.md                 # What is stored locally and what is sent to Google's API
+├── CHANGELOG.md               # Release history
+├── CONTRIBUTING.md            # Setup, conventions, and the safety rules that must not be broken
 ├── background/
-│   └── service-worker.js      # Ephemeral service worker, context menus, Gemini proxy & sync debouncer
+│   └── service-worker.js      # Service worker, context menus, Gemini proxy & chrome.alarms sync queue
 ├── content/
 │   ├── ats-adapters.js        # 15 ATS adapters, multi-signal matcher, complex UI engines, 90% fuzzy matcher
-│   ├── content.js             # Low-overhead DOM scanner (<50KB), synthetic setter & in-page floating hub
+│   ├── content.js             # DOM scanner, synthetic setter, sensitive-field denylist & in-page floating hub
 │   └── content.css            # Floating hub badge, toasts, and in-field AI card styles
 ├── popup/
 │   ├── popup.html             # Profile editor, dynamic knowledge store, resume dropzone, audit log UI
@@ -351,12 +386,12 @@ ApplyPilot AI/
 │   ├── sidepanel.css          # Companion sidebar styling
 │   └── sidepanel.js           # Companion observer, quick-copy field drawer, and AI essay scratchpad
 ├── lib/
-│   ├── storage.js             # Local profile schema, default values, memory dictionary & migration logic
-│   ├── audit-logger.js        # Ring-buffer audit telemetry logger (FIFO 1000), JSON/CSV export engine
-│   ├── gemini-service.js      # Direct Gemini 3 Flash REST client, model discovery, and multi-pass JSON repair
-│   └── pdf-extractor.js       # Zero-dependency client-side Flate/Deflate PDF text stream extractor
+│   ├── storage.js             # Blank-by-default profile schema, serialized write queue, SAMPLE_PROFILE fixture
+│   ├── audit-logger.js        # Batched ring-buffer audit log (FIFO 1000), value masking, JSON/CSV export
+│   ├── gemini-service.js      # Gemini REST client, live model discovery, and multi-pass JSON repair
+│   └── pdf-extractor.js       # Zero-dependency PDF extractor: Flate, PNG predictors, /ToUnicode CMaps
 ├── icons/                     # Vector-generated icons (16px, 48px, 128px)
-├── test/                      # Automated native Node 22 test suite (>97.6% coverage across all modules)
+├── test/                      # Native Node test suite (73 tests, 95.98% line coverage)
 │   ├── test-storage.js        # Storage CRUD, schema migrations, and string similarity tests
 │   ├── test-audit-logger.js   # Audit logger FIFO ring buffer, JSON/CSV exports, and aggregation tests
 │   ├── test-pdf-extractor.js  # PDF stream decoding, Flate decompression, octal sanitization tests
@@ -374,9 +409,14 @@ ApplyPilot AI/
 
 ## 🔒 Security, Privacy & Local-First Philosophy
 
-- **Zero Third-Party Telemetry**: ApplyPilot contains no tracking scripts, Google Analytics, or external databases.
-- **Zero Middleman Servers**: Communication occurs strictly between your browser and Google AI Studio via encrypted HTTPS using your personal API key.
-- **Local Data Ownership**: All candidate data, custom questions, learned feedback, and telemetry reside inside your browser's sandboxed storage. You can inspect, modify, clear, or export your data at any time.
+- **No Third-Party Telemetry**: ApplyPilot contains no tracking scripts, analytics, or external databases.
+- **No Middleman Servers**: The only network destination is `generativelanguage.googleapis.com`, called over HTTPS with your own API key. No ApplyPilot-operated server exists.
+- **Local Data Ownership**: All candidate data, custom questions, learned feedback, and activity logs live in your browser's sandboxed storage. Inspect, export, or erase it at any time from Settings → Your Data.
+- **Sensitive-Field Denylist**: Passwords, payment details, bank/routing/IBAN numbers, government identifiers (SSN, NI, Aadhaar, PAN, tax ID, passport, licence), date of birth, and salary history are never captured.
+- **Opt-In Learning**: Recording what you type is **off by default**. So is storing field values in the activity log. Sending corrections to Gemini can be disabled entirely.
+- **Blank By Default**: A fresh install ships with an empty profile. Autofill stays inert until you enter your own details, so placeholder data can never reach a real application.
+
+> **What this does not claim:** using any AI feature sends data to Google. On the Gemini **free tier**, Google may use submitted content to improve its products. Review the [Gemini API Terms](https://ai.google.dev/gemini-api/terms) before sending real personal data. Full detail in [PRIVACY.md](PRIVACY.md).
 
 ---
 

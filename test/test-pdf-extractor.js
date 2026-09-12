@@ -130,3 +130,165 @@ test('PdfExtractor: Fallback printable ASCII scan', async () => {
   const extracted = await PdfExtractor.extractText(mockPdf);
   assert.ok(extracted.includes('Pritam Rauniyar'));
 });
+
+// ==========================================================================
+// PNG predictors, ToUnicode CMaps, and Unicode preservation
+// ==========================================================================
+
+const {
+  undoPngPredictor,
+  applyDecodeParms,
+  parseToUnicodeCMap,
+  decodeHexWithCMap,
+  cleanPdfText
+} = require('../lib/pdf-extractor.js');
+
+// Encode rows with a given PNG filter so the decoder can be checked round-trip.
+function encodePngRows(rows, filterType, bpp) {
+  const rowLength = rows[0].length;
+  const out = [];
+  let prev = new Array(rowLength).fill(0);
+
+  for (const row of rows) {
+    out.push(filterType);
+    for (let i = 0; i < rowLength; i++) {
+      const left = i >= bpp ? row[i - bpp] : 0;
+      const up = prev[i];
+      const upLeft = i >= bpp ? prev[i - bpp] : 0;
+      let encoded;
+      switch (filterType) {
+        case 0: encoded = row[i]; break;
+        case 1: encoded = row[i] - left; break;
+        case 2: encoded = row[i] - up; break;
+        case 3: encoded = row[i] - ((left + up) >> 1); break;
+        case 4: {
+          const p = left + up - upLeft;
+          const pa = Math.abs(p - left);
+          const pb = Math.abs(p - up);
+          const pc = Math.abs(p - upLeft);
+          const pred = (pa <= pb && pa <= pc) ? left : (pb <= pc ? up : upLeft);
+          encoded = row[i] - pred;
+          break;
+        }
+        default: encoded = row[i];
+      }
+      out.push(encoded & 0xff);
+    }
+    prev = row;
+  }
+  return new Uint8Array(out);
+}
+
+test('PdfExtractor: undoPngPredictor reverses every PNG filter type', () => {
+  const rows = [
+    [10, 20, 30, 40],
+    [15, 25, 35, 45],
+    [12, 22, 32, 42]
+  ];
+
+  // Filters 0 (None) through 4 (Paeth), one byte per component.
+  for (const filterType of [0, 1, 2, 3, 4]) {
+    const encoded = encodePngRows(rows, filterType, 1);
+    const decoded = undoPngPredictor(encoded, 1, 8, 4);
+    const flat = rows.flat();
+    assert.deepStrictEqual(
+      Array.from(decoded),
+      flat,
+      `filter ${filterType} must round-trip`
+    );
+  }
+});
+
+test('PdfExtractor: undoPngPredictor tolerates malformed input', () => {
+  // Too short to contain a single row - returned unchanged rather than throwing.
+  const tiny = new Uint8Array([1, 2]);
+  assert.deepStrictEqual(Array.from(undoPngPredictor(tiny, 1, 8, 64)), [1, 2]);
+
+  // An unknown filter byte falls back to passthrough for that row.
+  const weird = new Uint8Array([99, 7, 8, 9]);
+  const out = undoPngPredictor(weird, 1, 8, 3);
+  assert.deepStrictEqual(Array.from(out), [7, 8, 9]);
+});
+
+test('PdfExtractor: applyDecodeParms honours the stream dictionary', () => {
+  const rows = [[5, 6, 7], [8, 9, 10]];
+  const encoded = encodePngRows(rows, 2, 1);
+
+  // No dictionary, or no predictor, means no transformation.
+  assert.strictEqual(applyDecodeParms(encoded, null), encoded);
+  assert.strictEqual(applyDecodeParms(encoded, '<< /Filter /FlateDecode >>'), encoded);
+
+  // TIFF predictor 2 is not handled and must pass through untouched.
+  assert.strictEqual(applyDecodeParms(encoded, '<< /Predictor 2 /Columns 3 >>'), encoded);
+
+  // A PNG predictor is reversed using the declared geometry.
+  const decoded = applyDecodeParms(encoded, '<< /Predictor 12 /Colors 1 /BitsPerComponent 8 /Columns 3 >>');
+  assert.deepStrictEqual(Array.from(decoded), [5, 6, 7, 8, 9, 10]);
+});
+
+test('PdfExtractor: parseToUnicodeCMap reads bfchar and bfrange sections', () => {
+  const cmap = `
+/CIDInit /ProcSet findresource begin
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+3 beginbfchar
+<0003> <0041>
+<0004> <0042>
+<0005> <2014>
+endbfchar
+1 beginbfrange
+<0010> <0012> <0061>
+endbfrange
+endcmap
+`;
+
+  const map = parseToUnicodeCMap(cmap);
+  assert.strictEqual(map.get(0x0003), 'A');
+  assert.strictEqual(map.get(0x0004), 'B');
+  assert.strictEqual(map.get(0x0005), '—');
+  // Range 0x10-0x12 maps onto 'a', 'b', 'c'.
+  assert.strictEqual(map.get(0x0010), 'a');
+  assert.strictEqual(map.get(0x0011), 'b');
+  assert.strictEqual(map.get(0x0012), 'c');
+
+  // Empty and malformed input yields an empty map rather than throwing.
+  assert.strictEqual(parseToUnicodeCMap('').size, 0);
+  assert.strictEqual(parseToUnicodeCMap(null).size, 0);
+});
+
+test('PdfExtractor: decodeHexWithCMap maps subset-font glyph ids to text', () => {
+  const cmap = new Map([
+    [0x0003, 'H'],
+    [0x0004, 'i']
+  ]);
+
+  // Glyph ids that mean nothing without the CMap decode to real characters.
+  assert.strictEqual(decodeHexWithCMap('00030004', cmap), 'Hi');
+
+  // With no CMap available, fall back to the plain interpretation.
+  assert.strictEqual(decodeHexWithCMap('48656c6c6f', new Map()), 'Hello');
+  assert.strictEqual(decodeHexWithCMap('48656c6c6f', null), 'Hello');
+
+  // A string the CMap cannot explain falls back rather than returning junk.
+  assert.strictEqual(decodeHexWithCMap('00410042', cmap), decodePdfHexString('00410042'));
+
+  // Odd-length (non 4-hex-aligned) input falls back too.
+  assert.strictEqual(decodeHexWithCMap('486', cmap), decodePdfHexString('486'));
+});
+
+test('PdfExtractor: cleanPdfText keeps accented and non-Latin characters', () => {
+  // The previous ASCII-only filter destroyed these; real resumes contain them.
+  assert.strictEqual(cleanPdfText('Jose Munoz'), 'Jose Munoz');
+  assert.strictEqual(cleanPdfText('José Muñoz'), 'José Muñoz');
+  assert.strictEqual(cleanPdfText('القاهرة'), 'القاهرة');
+  assert.strictEqual(cleanPdfText('北京大学'), '北京大学');
+  assert.strictEqual(cleanPdfText('Résumé — Senior Engineer'), 'Résumé — Senior Engineer');
+
+  // Control characters and replacement chars are still stripped.
+  assert.strictEqual(cleanPdfText('A BC'), 'A B C');
+  assert.strictEqual(cleanPdfText('A�B'), 'A B');
+
+  // Whitespace is collapsed and trimmed as before.
+  assert.strictEqual(cleanPdfText('  spaced   out  '), 'spaced out');
+});

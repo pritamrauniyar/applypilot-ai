@@ -297,7 +297,7 @@ global.MutationObserver = class MockMutationObserver {
 // Mock chrome
 let lastSentMessage = null;
 let allSentMessages = [];
-let messageResponses = {};
+const messageResponses = {};
 
 global.chrome = {
   runtime: {
@@ -329,7 +329,7 @@ const { AtsAdapters } = require('../content/ats-adapters.js');
 global.AtsAdapters = AtsAdapters;
 
 const ContentEngine = require('../content/content.js');
-const { DEFAULT_PROFILE } = require('../lib/storage.js');
+const { SAMPLE_PROFILE } = require('../lib/storage.js');
 
 test('ContentEngine: isExtensionValid & safeSendMessage', async () => {
   assert.strictEqual(ContentEngine.isExtensionValid(), true);
@@ -392,11 +392,11 @@ test('ContentEngine: logAuditAction', () => {
 test('ContentEngine: loadProfile', async () => {
   messageResponses['GET_PROFILE'] = {
     success: true,
-    profile: JSON.parse(JSON.stringify(DEFAULT_PROFILE))
+    profile: JSON.parse(JSON.stringify(SAMPLE_PROFILE))
   };
 
   const prof = await ContentEngine.loadProfile();
-  assert.strictEqual(prof.personal.fullName, 'Pritam Rauniyar');
+  assert.strictEqual(prof.personal.fullName, 'Alex Candidate');
 
   // Load from chrome.storage.local
   chrome.storage.local.get = async () => ({ applypilot_profile: { personal: { fullName: 'Cached User' } } });
@@ -516,7 +516,7 @@ test('ContentEngine: scanFormFields and autofillForm', async () => {
 
   messageResponses['GET_PROFILE'] = {
     success: true,
-    profile: JSON.parse(JSON.stringify(DEFAULT_PROFILE))
+    profile: JSON.parse(JSON.stringify(SAMPLE_PROFILE))
   };
   await ContentEngine.loadProfile();
 
@@ -528,9 +528,9 @@ test('ContentEngine: scanFormFields and autofillForm', async () => {
   // Run autofill
   const autofillRes = await ContentEngine.autofillForm();
   assert.ok(autofillRes.filledCount >= 3);
-  assert.strictEqual(fnInput.value, 'Pritam');
-  assert.strictEqual(lnInput.value, 'Rauniyar');
-  assert.strictEqual(emailInput.value, DEFAULT_PROFILE.personal.email);
+  assert.strictEqual(fnInput.value, 'Alex');
+  assert.strictEqual(lnInput.value, 'Candidate');
+  assert.strictEqual(emailInput.value, SAMPLE_PROFILE.personal.email);
   assert.strictEqual(fnInput.dataset.apAutofilled, 'true');
 });
 
@@ -914,7 +914,7 @@ test('ContentEngine: Extensive Edge Cases & Complex Components', async () => {
   ignInput.setAttribute('placeholder', 'veteran status');
   document.body.appendChild(ignInput);
 
-  const profileWithIgnored = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
+  const profileWithIgnored = JSON.parse(JSON.stringify(SAMPLE_PROFILE));
   profileWithIgnored.ignoredOptionalFields = [{ label: 'veteran status', pattern: 'veteran status' }];
   messageResponses['GET_PROFILE'] = { success: true, profile: profileWithIgnored };
   await ContentEngine.loadProfile();
@@ -1003,3 +1003,156 @@ test('ContentEngine: Extensive Edge Cases & Complex Components', async () => {
   global.MutationObserver = origMO;
 });
 
+
+// ==========================================================================
+// Privacy guards
+// ==========================================================================
+
+// Minimal element stand-in for the denylist checks.
+function fakeField({ type = 'text', name = '', id = '', autocomplete = '', ariaLabel = '', placeholder = '' } = {}) {
+  return {
+    type,
+    name,
+    id,
+    placeholder,
+    getAttribute: (attr) => {
+      if (attr === 'autocomplete') return autocomplete;
+      if (attr === 'aria-label') return ariaLabel;
+      return null;
+    }
+  };
+}
+
+test('Privacy: sensitive fields are never eligible for capture', () => {
+  // Credentials and non-user-editable inputs.
+  assert.ok(ContentEngine.isSensitiveField(fakeField({ type: 'password' })));
+  assert.ok(ContentEngine.isSensitiveField(fakeField({ type: 'hidden' })));
+  assert.ok(ContentEngine.isSensitiveField(fakeField({ type: 'file' })));
+
+  // Payment autocomplete tokens.
+  assert.ok(ContentEngine.isSensitiveField(fakeField({ autocomplete: 'cc-number' })));
+  assert.ok(ContentEngine.isSensitiveField(fakeField({ autocomplete: 'cc-csc' })));
+  assert.ok(ContentEngine.isSensitiveField(fakeField({ autocomplete: 'new-password' })));
+  assert.ok(ContentEngine.isSensitiveField(fakeField({ autocomplete: 'one-time-code' })));
+
+  // Government and financial identifiers, however they are labelled. These
+  // routinely appear on background-check and payroll steps of a real
+  // application flow, which is exactly where the capture loop was running.
+  const sensitiveLabels = [
+    'Social Security Number',
+    'SSN',
+    'National Insurance Number',
+    'Aadhaar Number',
+    'PAN Card',
+    'Tax Identification Number',
+    'Passport Number',
+    "Driver's License",
+    'Date of Birth',
+    'DOB',
+    'Credit Card Number',
+    'CVV',
+    'Bank Account Number',
+    'Routing Number',
+    'IBAN',
+    'Current Salary',
+    'Salary History',
+    "Mother's Maiden Name",
+    'Security Question'
+  ];
+
+  for (const label of sensitiveLabels) {
+    const el = fakeField({ ariaLabel: label });
+    assert.ok(
+      ContentEngine.isSensitiveField(el, { combinedLabels: label }),
+      `"${label}" must be treated as sensitive`
+    );
+  }
+});
+
+test('Privacy: ordinary application fields remain capturable', () => {
+  const ordinary = [
+    'First Name',
+    'Last Name',
+    'Email Address',
+    'Phone Number',
+    'LinkedIn Profile',
+    'Current Company',
+    'Job Title',
+    'Years of Experience',
+    'Expected Salary',
+    'Notice Period',
+    'Why do you want to work here?',
+    'School or University',
+    'Postal Code',
+    'Pin Code'
+  ];
+
+  for (const label of ordinary) {
+    const el = fakeField({ ariaLabel: label });
+    assert.ok(
+      !ContentEngine.isSensitiveField(el, { combinedLabels: label }),
+      `"${label}" must stay capturable`
+    );
+  }
+});
+
+test('Privacy: capture and autofill are gated on explicit opt-in and onboarding', () => {
+  // Value capture is off unless the user turns it on.
+  assert.strictEqual(ContentEngine.isCaptureEnabled(null), false);
+  assert.strictEqual(ContentEngine.isCaptureEnabled({}), false);
+  assert.strictEqual(ContentEngine.isCaptureEnabled({ settings: {} }), false);
+  assert.strictEqual(ContentEngine.isCaptureEnabled({ settings: { captureTypedValues: true } }), true);
+
+  // Autofill stays inert until the profile actually holds the user's details.
+  assert.strictEqual(ContentEngine.isProfileReady(null), false);
+  assert.strictEqual(ContentEngine.isProfileReady({ personal: {} }), false);
+  assert.strictEqual(ContentEngine.isProfileReady({ personal: { firstName: 'A' } }), false, 'a name alone is not enough');
+  assert.strictEqual(ContentEngine.isProfileReady({ onboardingComplete: true }), true);
+  assert.strictEqual(
+    ContentEngine.isProfileReady({ personal: { firstName: 'A', email: 'a@example.com' } }),
+    true,
+    'an existing filled-in profile counts as onboarded'
+  );
+});
+
+test('Capture merge preserves history the page did not show', () => {
+  const stored = [
+    { id: 'exp-1', title: 'Engineer', company: 'Acme Corp', description: 'Built things' },
+    { id: 'exp-2', title: 'Intern', company: 'Beta Inc', description: 'Learned things' },
+    { id: 'exp-3', title: 'Analyst', company: 'Gamma Ltd', description: 'Analysed things' }
+  ];
+
+  // The page shows only two roles, and leaves the description blank.
+  const scraped = [
+    { id: 'page-1', title: 'Senior Engineer', company: 'Acme Corp', description: '' },
+    { id: 'page-2', title: 'Intern', company: 'Beta Inc', description: '' }
+  ];
+
+  const merged = ContentEngine.mergeSequentialItems(stored, scraped);
+
+  assert.strictEqual(merged.length, 3, 'roles absent from the page must not be deleted');
+  assert.strictEqual(merged[2].company, 'Gamma Ltd');
+  // A non-empty scraped value wins...
+  assert.strictEqual(merged[0].title, 'Senior Engineer');
+  // ...but an empty one must not blank what is already on file.
+  assert.strictEqual(merged[0].description, 'Built things');
+  assert.strictEqual(merged[1].description, 'Learned things');
+  // Stored ids are stable across a capture.
+  assert.strictEqual(merged[0].id, 'exp-1');
+
+  // Scraped rows beyond what is stored are appended.
+  const grown = ContentEngine.mergeSequentialItems([], scraped);
+  assert.strictEqual(grown.length, 2);
+  assert.strictEqual(grown[0].title, 'Senior Engineer');
+});
+
+test('Audit logging masks values unless the user opts in', () => {
+  const original = lastSentMessage;
+
+  // Default profile: no logFieldValues flag.
+  ContentEngine.logAuditAction({ actionType: 'autofill', fieldLabel: 'Email', valueSet: 'secret@example.com' });
+  assert.strictEqual(lastSentMessage.action, 'LOG_AUDIT_ENTRY');
+  assert.strictEqual(lastSentMessage.logData.maskValue, true, 'values must be masked by default');
+
+  assert.ok(original !== undefined || original === null);
+});

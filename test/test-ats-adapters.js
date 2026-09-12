@@ -17,7 +17,7 @@ global.KeyboardEvent = class KeyboardEvent extends Event {
 };
 
 const { AtsAdapters, ComplexUIAdapters, calculateSim, isNinetyPercentMatch } = require('../content/ats-adapters.js');
-const { DEFAULT_PROFILE } = require('../lib/storage.js');
+const { SAMPLE_PROFILE } = require('../lib/storage.js');
 
 test('AtsAdapters: calculateSim and isNinetyPercentMatch local utility', () => {
   // Empty or falsy
@@ -208,7 +208,7 @@ test('AtsAdapters: getElementDescriptor with all DOM accessibility patterns', ()
 });
 
 test('AtsAdapters: matchElement with predictive ignore, keywords ignore, and autocomplete', () => {
-  const profile = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
+  const profile = JSON.parse(JSON.stringify(SAMPLE_PROFILE));
 
   // 1. Ignored by keyword in ignoredOptionalFields
   profile.ignoredOptionalFields = [
@@ -249,18 +249,18 @@ test('AtsAdapters: matchElement with predictive ignore, keywords ignore, and aut
   };
   const resAuto = AtsAdapters.matchElement(descAuto, profile);
   assert.strictEqual(resAuto.matched, true);
-  assert.strictEqual(resAuto.value, 'Pritam');
+  assert.strictEqual(resAuto.value, 'Alex');
 });
 
 test('AtsAdapters: matchElement company employer check and nested details', () => {
-  const profile = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
+  const profile = JSON.parse(JSON.stringify(SAMPLE_PROFILE));
   profile.experience.items = [
-    { company: 'Uber', title: 'Software Engineer II' }
+    { company: 'Acme Corp', title: 'Software Engineer II' }
   ];
 
-  // 1. Former employee check where company is Uber -> resolves to "Yes" automatically
+  // 1. Former employee check where company is Acme Corp -> resolves to "Yes" automatically
   const descCompany = {
-    combinedLabels: 'have you ever worked at uber or any of its subsidiaries?',
+    combinedLabels: 'have you ever worked at acme corp or any of its subsidiaries?',
     name: 'former_emp'
   };
   const resCompany = AtsAdapters.matchElement(descCompany, profile);
@@ -298,7 +298,7 @@ test('AtsAdapters: matchElement company employer check and nested details', () =
   };
   const resInst = AtsAdapters.matchElement(descInst, profile);
   assert.strictEqual(resInst.matched, true);
-  assert.strictEqual(resInst.value, 'Motilal Nehru National Institute Of Technology');
+  assert.strictEqual(resInst.value, 'Example Institute of Technology');
 });
 
 test('AtsAdapters: ComplexUIAdapters all branches and edge cases', async () => {
@@ -338,7 +338,7 @@ test('AtsAdapters: ComplexUIAdapters all branches and edge cases', async () => {
   assert.strictEqual(enterKeySent, true);
 
   // 2. fillMultiTagInput with comma-separated string
-  let tagsAdded = [];
+  const tagsAdded = [];
   const mockTagEl = {
     focus: () => {},
     value: '',
@@ -442,7 +442,7 @@ test('AtsAdapters: ComplexUIAdapters all branches and edge cases', async () => {
 });
 
 test('AtsAdapters: middleName matching vs fullName protection and nested work experience role descriptions', async (t) => {
-  const profile = JSON.parse(JSON.stringify(DEFAULT_PROFILE));
+  const profile = JSON.parse(JSON.stringify(SAMPLE_PROFILE));
   profile.personal.firstName = "Pritam";
   profile.personal.middleName = "";
   profile.personal.lastName = "Rauniyar";
@@ -496,7 +496,7 @@ test('AtsAdapters: middleName matching vs fullName protection and nested work ex
   profile.dynamicFields = [];
   profile.experience.headline = "Senior Technical Architect & Engineer";
   profile.experience.items = [
-    { id: "exp-1", company: "Uber", title: "SWE II", description: "" },
+    { id: "exp-1", company: "Acme Corp", title: "SWE II", description: "" },
     { id: "exp-2", company: "Meta", title: "SWE I", description: "Engineered scalable microservices." }
   ];
 

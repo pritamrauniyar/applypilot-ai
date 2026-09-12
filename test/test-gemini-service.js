@@ -2,26 +2,33 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const { GeminiService } = require('../lib/gemini-service.js');
-const { DEFAULT_PROFILE } = require('../lib/storage.js');
+const { SAMPLE_PROFILE } = require('../lib/storage.js');
 
-test('GeminiService: testApiKey validation and discovery', async () => {
+test('GeminiService: testApiKey reports exactly what the key can reach', async () => {
   // 1. Missing or empty API key
   const emptyRes = await GeminiService.testApiKey('');
   assert.strictEqual(emptyRes.success, false);
   assert.ok(emptyRes.error.includes('enter an API key'));
 
   const origFetch = global.fetch;
+  GeminiService.cachedWorkingModel = null;
 
   try {
-    // 2. Success on v1beta with preferred gemini-3.6-flash
-    global.fetch = async (url) => {
+    // 2. Currently-available models must be reported, never filtered out for
+    //    being "old". Embedding-only models are excluded as unusable here.
+    let sentHeaders = null;
+    let sentUrl = null;
+    global.fetch = async (url, opts) => {
+      sentUrl = url;
+      sentHeaders = opts?.headers || null;
       if (url.includes('v1beta/models')) {
         return {
           ok: true,
           json: async () => ({
             models: [
+              { name: 'models/gemini-2.5-pro', supportedGenerationMethods: ['generateContent'] },
               { name: 'models/gemini-1.5-flash', supportedGenerationMethods: ['generateContent'] },
-              { name: 'models/gemini-3.6-flash', supportedGenerationMethods: ['generateContent'] },
+              { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] },
               { name: 'models/embedding-001', supportedGenerationMethods: ['embedContent'] }
             ]
           })
@@ -33,10 +40,24 @@ test('GeminiService: testApiKey validation and discovery', async () => {
     const successRes = await GeminiService.testApiKey('valid-key');
     assert.strictEqual(successRes.success, true);
     assert.strictEqual(successRes.apiVersion, 'v1beta');
-    assert.strictEqual(successRes.selectedModel, 'gemini-3.6-flash');
-    assert.ok(successRes.message.includes('Connected successfully'));
 
-    // 3. Fallback to v1 when v1beta returns error
+    // Real models survive; the embedding model does not.
+    assert.ok(successRes.models.includes('gemini-1.5-flash'), 'available models must not be filtered by version');
+    assert.ok(successRes.models.includes('gemini-2.5-flash'));
+    assert.ok(!successRes.models.includes('embedding-001'));
+
+    // Ranking: flash tier before pro, newest version first within a tier.
+    assert.strictEqual(successRes.selectedModel, 'gemini-2.5-flash');
+    assert.ok(successRes.models.indexOf('gemini-2.5-flash') < successRes.models.indexOf('gemini-2.5-pro'));
+    assert.ok(successRes.models.indexOf('gemini-2.5-flash') < successRes.models.indexOf('gemini-1.5-flash'));
+    assert.ok(successRes.message.includes('Connected on v1beta'));
+
+    // The key travels as a header, never in the URL.
+    assert.ok(sentHeaders && sentHeaders['x-goog-api-key'] === 'valid-key');
+    assert.ok(!sentUrl.includes('valid-key'), 'API key must not appear in the request URL');
+
+    // 3. Fallback to v1 when v1beta returns an error
+    GeminiService.cachedWorkingModel = null;
     global.fetch = async (url) => {
       if (url.includes('v1beta')) {
         return { ok: false, json: async () => ({ error: { message: 'v1beta unsupported' } }) };
@@ -45,7 +66,7 @@ test('GeminiService: testApiKey validation and discovery', async () => {
         ok: true,
         json: async () => ({
           models: [
-            { name: 'models/gemini-3.5-flash', supportedGenerationMethods: ['generateContent'] }
+            { name: 'models/gemini-2.0-flash', supportedGenerationMethods: ['generateContent'] }
           ]
         })
       };
@@ -54,9 +75,10 @@ test('GeminiService: testApiKey validation and discovery', async () => {
     const v1Res = await GeminiService.testApiKey('valid-key');
     assert.strictEqual(v1Res.success, true);
     assert.strictEqual(v1Res.apiVersion, 'v1');
-    assert.strictEqual(v1Res.selectedModel, 'gemini-3.5-flash');
+    assert.strictEqual(v1Res.selectedModel, 'gemini-2.0-flash');
 
     // 4. Both fail
+    GeminiService.cachedWorkingModel = null;
     global.fetch = async () => ({
       ok: false,
       json: async () => ({ error: { message: 'Invalid API Key' } })
@@ -72,77 +94,91 @@ test('GeminiService: testApiKey validation and discovery', async () => {
     assert.strictEqual(excRes.success, false);
     assert.ok(excRes.error.includes('Network connection failed'));
 
+    // 6. A key that lists only unusable models is a failure, not a silent default.
+    global.fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        models: [{ name: 'models/embedding-001', supportedGenerationMethods: ['embedContent'] }]
+      })
+    });
+    const noneRes = await GeminiService.testApiKey('key');
+    assert.strictEqual(noneRes.success, false);
+    assert.ok(noneRes.error.includes('no models'));
+
   } finally {
     global.fetch = origFetch;
+    GeminiService.cachedWorkingModel = null;
   }
 });
 
-test('GeminiService: getSupportedModel priorities and caching', async () => {
+test('GeminiService: getSupportedModel ranks discovered models and caches', async () => {
   const origFetch = global.fetch;
   GeminiService.cachedWorkingModel = null;
 
   try {
-    // 1. Priority 1: gemini-3.6-flash
+    // 1. flash-lite outranks flash, which outranks pro.
     global.fetch = async () => ({
       ok: true,
       json: async () => ({
         models: [
-          { name: 'models/gemini-3.6-flash', supportedGenerationMethods: ['generateContent'] }
+          { name: 'models/gemini-2.5-pro', supportedGenerationMethods: ['generateContent'] },
+          { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] },
+          { name: 'models/gemini-2.5-flash-lite', supportedGenerationMethods: ['generateContent'] }
         ]
       })
     });
     const m1 = await GeminiService.getSupportedModel('key');
-    assert.strictEqual(m1.model, 'gemini-3.6-flash');
+    assert.strictEqual(m1.model, 'gemini-2.5-flash-lite');
     assert.strictEqual(m1.apiVersion, 'v1beta');
 
-    // Cached model reuse
+    // 2. Cached reuse - no further network call.
+    let called = false;
+    global.fetch = async () => { called = true; throw new Error('should not be called'); };
     const cached = await GeminiService.getSupportedModel('key');
-    assert.strictEqual(cached.model, 'gemini-3.6-flash');
+    assert.strictEqual(cached.model, 'gemini-2.5-flash-lite');
+    assert.strictEqual(called, false, 'cached model must not re-query ListModels');
 
-    // Invalidate cache for next test
+    // 3. Stable is preferred over preview at the same version.
     GeminiService.cachedWorkingModel = null;
-
-    // 2. Priority 2: Candidate models (e.g. gemini-3.7-flash)
     global.fetch = async () => ({
       ok: true,
       json: async () => ({
         models: [
-          { name: 'models/gemini-3.7-flash', supportedGenerationMethods: ['generateContent'] }
-        ]
-      })
-    });
-    const m2 = await GeminiService.getSupportedModel('key');
-    assert.strictEqual(m2.model, 'gemini-3.7-flash');
-
-    // Invalidate cache
-    GeminiService.cachedWorkingModel = null;
-
-    // 3. Priority 3: any modern flash model
-    global.fetch = async () => ({
-      ok: true,
-      json: async () => ({
-        models: [
-          { name: 'models/gemini-custom-flash', supportedGenerationMethods: ['generateContent'] }
+          { name: 'models/gemini-3-flash-preview', supportedGenerationMethods: ['generateContent'] },
+          { name: 'models/gemini-3-flash', supportedGenerationMethods: ['generateContent'] }
         ]
       })
     });
     const m3 = await GeminiService.getSupportedModel('key');
-    assert.strictEqual(m3.model, 'gemini-custom-flash');
+    assert.strictEqual(m3.model, 'gemini-3-flash');
 
-    // Invalidate cache
+    // 4. An unknown future naming scheme still resolves rather than failing.
     GeminiService.cachedWorkingModel = null;
+    global.fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        models: [{ name: 'models/gemini-99-turbo', supportedGenerationMethods: ['generateContent'] }]
+      })
+    });
+    const m4 = await GeminiService.getSupportedModel('key');
+    assert.strictEqual(m4.model, 'gemini-99-turbo');
 
-    // 4. Exception fallback
+    // 5. Discovery failure returns null - the caller must surface a real error
+    //    rather than firing a request at an invented model id.
+    GeminiService.cachedWorkingModel = null;
     global.fetch = async () => { throw new Error('API down'); };
     const mFallback = await GeminiService.getSupportedModel('key');
-    assert.strictEqual(mFallback.model, 'gemini-3.6-flash');
+    assert.strictEqual(mFallback, null);
 
   } finally {
     global.fetch = origFetch;
+    GeminiService.cachedWorkingModel = null;
   }
 });
 
 test('GeminiService: requestWithFallback error handling and fast-fails', async () => {
+  // Steady state: a model has already been resolved, so no ListModels call.
+  GeminiService.cachedWorkingModel = { model: 'gemini-2.5-flash', apiVersion: 'v1beta' };
   const origFetch = global.fetch;
 
   // 1. Missing API Key
@@ -200,11 +236,19 @@ test('GeminiService: requestWithFallback error handling and fast-fails', async (
     let attemptCount = 0;
     global.fetch = async (url) => {
       attemptCount++;
-      if (url.includes('gemini-3.6-flash')) {
+      if (url.includes('gemini-2.5-flash')) {
         return {
           ok: false,
           status: 404,
-          json: async () => ({ error: { message: 'models/gemini-3.6-flash is not found' } })
+          json: async () => ({ error: { message: 'models/gemini-2.5-flash is not found' } })
+        };
+      }
+      if (url.endsWith('/models')) {
+        return {
+          ok: true,
+          json: async () => ({
+            models: [{ name: 'models/gemini-2.0-flash', supportedGenerationMethods: ['generateContent'] }]
+          })
         };
       }
       return {
@@ -215,12 +259,13 @@ test('GeminiService: requestWithFallback error handling and fast-fails', async (
       };
     };
 
-    const res404 = await GeminiService.generate('test prompt', 'key', '', 'gemini-3.6-flash');
+    const res404 = await GeminiService.generate('test prompt', 'key', '', 'gemini-2.5-flash');
     assert.strictEqual(res404, 'Response from fallback');
     assert.ok(attemptCount > 1, 'Should have fallen back after 404');
 
   } finally {
     global.fetch = origFetch;
+    GeminiService.cachedWorkingModel = null;
   }
 });
 
@@ -251,6 +296,8 @@ test('GeminiService: parseAndRepairJson resilient JSON engine', () => {
 });
 
 test('GeminiService: parseResumeText & normalization', async () => {
+  // Steady state: a model has already been resolved, so no ListModels call.
+  GeminiService.cachedWorkingModel = { model: 'gemini-2.5-flash', apiVersion: 'v1beta' };
   const origFetch = global.fetch;
 
   try {
@@ -302,10 +349,13 @@ test('GeminiService: parseResumeText & normalization', async () => {
 
   } finally {
     global.fetch = origFetch;
+    GeminiService.cachedWorkingModel = null;
   }
 });
 
 test('GeminiService: parseResumeFile with Image and PDF fallbacks', async () => {
+  // Steady state: a model has already been resolved, so no ListModels call.
+  GeminiService.cachedWorkingModel = { model: 'gemini-2.5-flash', apiVersion: 'v1beta' };
   const origFetch = global.fetch;
 
   try {
@@ -351,10 +401,13 @@ test('GeminiService: parseResumeFile with Image and PDF fallbacks', async () => 
 
   } finally {
     global.fetch = origFetch;
+    GeminiService.cachedWorkingModel = null;
   }
 });
 
 test('GeminiService: answerOpenEndedQuestion, suggestFieldAnswer, and refineKnowledgeBase', async () => {
+  // Steady state: a model has already been resolved, so no ListModels call.
+  GeminiService.cachedWorkingModel = { model: 'gemini-2.5-flash', apiVersion: 'v1beta' };
   const origFetch = global.fetch;
 
   try {
@@ -377,7 +430,7 @@ test('GeminiService: answerOpenEndedQuestion, suggestFieldAnswer, and refineKnow
       question: "Describe your greatest engineering accomplishment",
       jobTitle: "Senior Distributed Systems Engineer",
       companyName: "Google",
-      userProfile: DEFAULT_PROFILE,
+      userProfile: SAMPLE_PROFILE,
       apiKey: "test-key"
     });
     assert.ok(answer.includes("Uber scale"));
@@ -397,7 +450,7 @@ test('GeminiService: answerOpenEndedQuestion, suggestFieldAnswer, and refineKnow
         sectionIndex: 1,
         targetCompany: "Stripe",
         targetTitle: "Staff Software Engineer",
-        userProfile: DEFAULT_PROFILE,
+        userProfile: SAMPLE_PROFILE,
         apiKey: "test-key"
       });
       assert.strictEqual(exp2Answer, "Spearheaded Stripe billing platform improvements.");
@@ -413,7 +466,7 @@ test('GeminiService: answerOpenEndedQuestion, suggestFieldAnswer, and refineKnow
       fieldLabel: "Preferred Cloud Platform",
       fieldType: "select",
       options: ["AWS", "GCP", "Azure"],
-      userProfile: DEFAULT_PROFILE,
+      userProfile: SAMPLE_PROFILE,
       apiKey: "test-key"
     });
     assert.ok(suggestion);
@@ -444,7 +497,7 @@ test('GeminiService: answerOpenEndedQuestion, suggestFieldAnswer, and refineKnow
 
     const refinement = await GeminiService.refineKnowledgeBase({
       pendingItems: [{ type: 'user_correction', field: 'Higher Education', value: 'MNNIT' }],
-      profile: DEFAULT_PROFILE,
+      profile: SAMPLE_PROFILE,
       apiKey: 'test-key'
     });
     assert.ok(refinement);
@@ -454,12 +507,13 @@ test('GeminiService: answerOpenEndedQuestion, suggestFieldAnswer, and refineKnow
     // Empty pending items returns null
     const emptyRefinement = await GeminiService.refineKnowledgeBase({
       pendingItems: [],
-      profile: DEFAULT_PROFILE,
+      profile: SAMPLE_PROFILE,
       apiKey: 'test-key'
     });
     assert.strictEqual(emptyRefinement, null);
 
   } finally {
     global.fetch = origFetch;
+    GeminiService.cachedWorkingModel = null;
   }
 });

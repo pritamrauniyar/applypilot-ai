@@ -13,6 +13,103 @@
   let cachedProfile = null;
   let floatingHubEl = null;
 
+  // ---------------------------------------------------------------------------
+  // Sensitive-field denylist.
+  //
+  // The learning loop persists field values, so anything matched here must never
+  // be read, stored, logged, or sent to the AI compiler - regardless of how the
+  // surrounding page is classified. Job applications routinely sit alongside
+  // background-check and payroll forms carrying exactly these fields.
+  // ---------------------------------------------------------------------------
+  const SENSITIVE_INPUT_TYPES = new Set(['password', 'hidden', 'submit', 'button', 'reset', 'image', 'file']);
+
+  const SENSITIVE_AUTOCOMPLETE = /^(cc-|new-password|current-password|one-time-code)/i;
+
+  const SENSITIVE_LABEL_PATTERNS = [
+    /\bssn\b/i,
+    /social\s*security/i,
+    /\bsin\b/i,
+    /national\s*(insurance|id|identity)/i,
+    /\baadhaar\b/i,
+    /\bpan\s*(card|number)\b/i,
+    /tax\s*(id|identification|payer)/i,
+    /\bitin\b/i,
+    /passport/i,
+    /driver'?s?\s*licen[cs]e/i,
+    /\bdate\s*of\s*birth\b/i,
+    /\bbirth\s*date\b/i,
+    /\bdob\b/i,
+    /credit\s*card/i,
+    /\bcard\s*number\b/i,
+    /\bcvv\b|\bcvc\b|security\s*code/i,
+    /bank\s*(account|routing)/i,
+    /routing\s*number/i,
+    /account\s*number/i,
+    /\biban\b|\bswift\b|\bsort\s*code\b/i,
+    /\bsalary\s*history\b/i,
+    /current\s*(salary|compensation|ctc)/i,
+    /mother'?s?\s*maiden/i,
+    /security\s*question/i,
+    /\bpin\b(?!\s*code)/i
+  ];
+
+  // True when a field must be excluded from capture, logging and AI payloads.
+  function isSensitiveField(el, descriptor = null) {
+    if (!el) return true;
+
+    const type = (el.type || "").toLowerCase();
+    if (SENSITIVE_INPUT_TYPES.has(type)) return true;
+
+    const autocomplete = (el.getAttribute && el.getAttribute('autocomplete')) || "";
+    if (SENSITIVE_AUTOCOMPLETE.test(autocomplete.trim())) return true;
+
+    const haystack = [
+      descriptor?.combinedLabels,
+      descriptor?.placeholder,
+      descriptor?.name,
+      descriptor?.id,
+      descriptor?.dataAutomationId,
+      el.name,
+      el.id,
+      el.getAttribute && el.getAttribute('aria-label'),
+      el.placeholder
+    ].filter(Boolean).join(" ");
+
+    return SENSITIVE_LABEL_PATTERNS.some(re => re.test(haystack));
+  }
+
+  // Frames too small to hold a real application form (ad slots, tracking pixels,
+  // social buttons) are skipped entirely. The content script matches all_frames
+  // so embedded ATS iframes still work, but it must not pay observer cost in the
+  // dozens of junk frames a typical page carries.
+  function isRelevantFrame() {
+    try {
+      if (window.top !== window.self) {
+        const w = window.innerWidth || 0;
+        const h = window.innerHeight || 0;
+        if (w < 300 || h < 200) return false;
+      }
+      return true;
+    } catch (e) {
+      // Cross-origin access to window.top throws - assume the frame is relevant.
+      return true;
+    }
+  }
+
+  // Autofill must stay inert until the user has supplied their own details,
+  // otherwise a fresh install would write empty or placeholder values into a
+  // live application.
+  function isProfileReady(profile) {
+    if (!profile) return false;
+    if (profile.onboardingComplete) return true;
+    return Boolean((profile.personal?.firstName || profile.personal?.fullName) && profile.personal?.email);
+  }
+
+  // Value capture is opt-in. Default off.
+  function isCaptureEnabled(profile) {
+    return Boolean(profile?.settings?.captureTypedValues);
+  }
+
   // Helper to reliably access AtsAdapters across extension contexts
   function getAtsAdapters() {
     if (typeof window !== 'undefined' && window.AtsAdapters) return window.AtsAdapters;
@@ -49,9 +146,16 @@
     }
   }
 
-  // Audit Logger Telemetry Helper
+  // Audit Logger Telemetry Helper.
+  // Field VALUES are masked unless the user explicitly opted in
+  // (Settings -> "Record field values in activity log"). The ledger still records
+  // which field was touched, where, and whether it succeeded.
   function logAuditAction(entry) {
     try {
+      const logValues = Boolean(cachedProfile?.settings?.logFieldValues);
+      if (!logValues && entry && entry.valueSet) {
+        entry = { ...entry, maskValue: true };
+      }
       const host = window.location.hostname || "";
       let portalType = "generic";
       if (host.includes("myworkdayjobs.com") || host.includes("workday")) portalType = "workday";
@@ -291,6 +395,8 @@
     for (const el of candidates) {
       if (el.closest && el.closest('#applypilot-floating-hub, #applypilot-review-card, .ap-toast')) continue;
       const descriptor = adapters.getElementDescriptor(el);
+      // Never surface a sensitive field as fillable or as an AI candidate.
+      if (isSensitiveField(el, descriptor)) continue;
       allDescriptors.push(descriptor);
 
       // Probe first to see if this matches an experience or education field
@@ -326,6 +432,12 @@
   // 4. Autofill All Matched Fields (Instant <10ms, Local-First, Zero AI Blocking)
   async function autofillForm() {
     await loadProfile();
+
+    if (!isProfileReady(cachedProfile)) {
+      showToast("Add your details in ApplyPilot first — nothing to fill yet.");
+      return { filledCount: 0, totalMatched: 0, metrics: null, notOnboarded: true };
+    }
+
     const { matched, unmatched, metrics } = scanFormFields();
     const adapters = getAtsAdapters();
     let filledCount = 0;
@@ -442,11 +554,16 @@
     const textareas = document.querySelectorAll('textarea');
     for (const ta of textareas) {
       if (ta.dataset.apAiAttached) continue;
-      ta.dataset.apAiAttached = "true";
+      // Don't offer to draft an answer into a field we must not read.
+      if (isSensitiveField(ta)) continue;
 
       // Wrap in relative container if needed
+      // A detached textarea has no parent to anchor the button to. Mark the
+      // element only once we know a button will actually be attached.
       const parent = ta.parentElement;
-      if (parent && getComputedStyle(parent).position === 'static') {
+      if (!parent) continue;
+      ta.dataset.apAiAttached = "true";
+      if (getComputedStyle(parent).position === 'static') {
         parent.style.position = 'relative';
       }
 
@@ -578,7 +695,7 @@
 
             showToast(`✓ AI Draft created for ${parentScope}!`);
           } else if (res && res.error) {
-            alert(`ApplyPilot AI Notice: ${res.error}`);
+            showToast(`ApplyPilot AI: ${res.error}`);
           }
         });
       });
@@ -660,7 +777,7 @@
     await loadProfile();
     const { unmatched } = scanFormFields();
     if (!unmatched.length) {
-      alert("ApplyPilot AI: All detected fields on this page are already recognized and filled!");
+      showToast("All detected fields on this page are already recognized and filled.");
       return;
     }
 
@@ -719,7 +836,7 @@
           }
         });
       } else {
-        alert(res?.error || "Could not generate AI suggestion for this field.");
+        showToast(res?.error || "Could not generate an AI suggestion for this field.");
       }
     });
   }
@@ -835,7 +952,13 @@
 
     floatingHubEl.querySelector('#ap-btn-sidepanel').addEventListener('click', () => {
       menu.classList.remove('ap-visible');
-      safeSendMessage({ action: "OPEN_SIDEPANEL" });
+      safeSendMessage({ action: "OPEN_SIDEPANEL" }, (res) => {
+        // Chrome refuses sidePanel.open() unless the gesture came from the
+        // extension itself, so tell the user what to click instead of failing mute.
+        if (res && res.success === false && res.error) {
+          showToast(res.error);
+        }
+      });
     });
     return floatingHubEl;
   }
@@ -875,20 +998,24 @@
 
   // 9. Automatically Learn and Save Any Field When the User Types or Changes It
   function attachFieldCaptureListeners() {
-    let debounceTimer = null;
+    // One timer PER element. A single shared timer meant that tabbing from field
+    // A to field B inside the debounce window cancelled A's save outright, so the
+    // first of any two quick edits was silently dropped.
+    const debounceTimers = new WeakMap();
 
     const handleFieldChange = (e) => {
       if (!isExtensionValid()) return;
       const el = e.target;
       if (!el || !el.matches || !el.matches('input, select, textarea')) return;
-      if (el.type === 'password' || el.type === 'hidden' || el.type === 'submit' || el.type === 'button') return;
       if (el.closest && el.closest('#applypilot-floating-hub, #applypilot-review-card, .ap-toast')) return;
+      // Sensitive fields are never read, stored or transmitted.
+      if (isSensitiveField(el)) return;
 
       const rawVal = el.type === 'checkbox' ? (el.checked ? "Yes" : "No") : el.value;
       const val = typeof rawVal === 'string' ? rawVal.trim() : rawVal;
 
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(async () => {
+      clearTimeout(debounceTimers.get(el));
+      debounceTimers.set(el, setTimeout(async () => {
         if (!isExtensionValid()) return;
         const adapters = getAtsAdapters();
         if (!adapters) return;
@@ -898,7 +1025,13 @@
         }
         await loadProfile();
 
+        // Learning from what the user types is opt-in (Settings -> "Learn from
+        // what I type"). Without it ApplyPilot still fills and still detects
+        // corrections to its own values, but stores nothing new.
+        if (!isCaptureEnabled(cachedProfile) && !window.__applypilot_testing) return;
+
         const descriptor = adapters.getElementDescriptor(el);
+        if (isSensitiveField(el, descriptor)) return;
         const label = descriptor.combinedLabels || descriptor.placeholder || descriptor.name || descriptor.dataAutomationId;
         if (!label || label.length < 2) return;
 
@@ -1175,7 +1308,7 @@
             }
           });
         }
-      }, 600);
+      }, 600));
     };
 
     document.addEventListener('focus', (e) => {
@@ -1203,9 +1336,11 @@
         const isJobPage = adapters.isJobApplicationPage(window.location.href, document);
         if (!isJobPage && !window.__applypilot_testing) return;
       }
+      if (!isCaptureEnabled(cachedProfile) && !window.__applypilot_testing) return;
       const allInputs = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), select, textarea');
       for (const inp of allInputs) {
         const desc = adapters.getElementDescriptor(inp);
+        if (isSensitiveField(inp, desc)) continue;
         if (!desc.isRequired) {
           const hasVal = (inp.value || "").trim().length > 0;
           const optLabel = desc.combinedLabels || desc.placeholder || desc.name;
@@ -1221,6 +1356,26 @@
         }
       }
     }, true);
+  }
+
+  // Merge scraped rows into stored rows slot-by-slot: a non-empty scraped value
+  // wins, an empty one leaves the stored value alone, and stored rows beyond
+  // what the page showed are preserved rather than truncated.
+  function mergeSequentialItems(existingItems, scrapedItems) {
+    const merged = Array.isArray(existingItems) ? existingItems.map(it => ({ ...it })) : [];
+    scrapedItems.forEach((scraped, i) => {
+      if (!merged[i]) {
+        merged[i] = { ...scraped };
+        return;
+      }
+      for (const [key, value] of Object.entries(scraped)) {
+        if (key === 'id') continue;
+        if (typeof value === 'string' && value.trim() === '') continue;
+        if (value === undefined || value === null) continue;
+        merged[i][key] = value;
+      }
+    });
+    return merged;
   }
 
   // 10. Scan & Capture All Non-Empty Page Fields (e.g. from Workday's Resume Parser)
@@ -1257,6 +1412,7 @@
       if (!val || val.length === 0) continue;
 
       const descriptor = adapters.getElementDescriptor(el);
+      if (isSensitiveField(el, descriptor)) continue;
       const label = descriptor.combinedLabels || descriptor.placeholder || descriptor.name || descriptor.dataAutomationId;
       if (!label || label.length < 2) continue;
 
@@ -1310,7 +1466,13 @@
       }
       if (newExpItems.length > 0) {
         cachedProfile.experience = cachedProfile.experience || {};
-        cachedProfile.experience.items = newExpItems;
+        // Merge per slot instead of replacing the array. A page that shows only
+        // two of the user's five roles must not delete the other three, and an
+        // empty field on the page must not blank a value already on file.
+        cachedProfile.experience.items = mergeSequentialItems(
+          cachedProfile.experience.items || [],
+          newExpItems
+        );
         if (newExpItems[0].title) cachedProfile.experience.currentTitle = newExpItems[0].title;
         if (newExpItems[0].company) cachedProfile.experience.currentCompany = newExpItems[0].company;
         safeSendMessage({ action: "SAVE_PROFILE", profile: cachedProfile });
@@ -1334,7 +1496,10 @@
       }
       if (newEduItems.length > 0) {
         cachedProfile.education = cachedProfile.education || {};
-        cachedProfile.education.items = newEduItems;
+        cachedProfile.education.items = mergeSequentialItems(
+          cachedProfile.education.items || [],
+          newEduItems
+        );
         if (newEduItems[0].school) cachedProfile.education.school = newEduItems[0].school;
         if (newEduItems[0].degree) cachedProfile.education.degree = newEduItems[0].degree;
         safeSendMessage({ action: "SAVE_PROFILE", profile: cachedProfile });
@@ -1365,9 +1530,19 @@
   // 11. Observe dynamic SPA steps (Workday steps 1 -> 2 -> 3)
   function observeDynamicForms() {
     let timer = null;
+    let lastEvaluation = 0;
+
+    // isJobApplicationPage() runs several querySelectorAll sweeps, so it must not
+    // run on every batch of mutations. Debounce, then rate-limit to at most one
+    // evaluation per second; SPA step changes are still picked up promptly.
+    const MIN_EVALUATION_INTERVAL_MS = 1000;
+
     const observer = new MutationObserver(() => {
       clearTimeout(timer);
       timer = setTimeout(async () => {
+        const now = Date.now();
+        if (now - lastEvaluation < MIN_EVALUATION_INTERVAL_MS) return;
+        lastEvaluation = now;
         const adapters = getAtsAdapters();
         const isJobPage = adapters && typeof adapters.isJobApplicationPage === 'function'
           ? adapters.isJobApplicationPage(window.location.href, document)
@@ -1388,31 +1563,48 @@
       }, 400);
     });
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    // attributes/characterData are irrelevant here and would multiply callbacks
+    // on text-heavy pages for no benefit.
+    observer.observe(document.body, { childList: true, subtree: true, attributes: false, characterData: false });
   }
 
   // 12. Runtime Message Listener
   const onMessageListener = (request, sender, sendResponse) => {
+    // Every path must call sendResponse exactly once. Returning early without
+    // responding leaves the sender's callback pending until the port closes.
     (async () => {
-      if (!isExtensionValid()) return;
-      if (request.action === "AUTOFILL") {
-        const res = await autofillForm();
-        sendResponse({ success: true, ...res });
-      } else if (request.action === "CAPTURE_PAGE_FIELDS") {
-        const res = await capturePageValues();
-        sendResponse({ success: true, ...res });
-      } else if (request.action === "SCAN_FIELDS") {
-        await loadProfile();
-        const scan = scanFormFields();
-        sendResponse({
-          total: scan.total,
-          matchedCount: scan.matched.length,
-          unmatchedCount: scan.unmatched.length,
-          matchedLabels: scan.matched.map(m => m.matchResult.label || m.matchResult.def?.key)
-        });
-      } else if (request.action === "SUGGEST_UNMATCHED") {
-        await suggestNextUnrecognizedField();
-        sendResponse({ success: true });
+      try {
+        if (!isExtensionValid()) {
+          sendResponse({ success: false, error: "Extension context invalidated. Reload this page to reconnect." });
+          return;
+        }
+
+        if (request.action === "AUTOFILL") {
+          const res = await autofillForm();
+          sendResponse({ success: true, ...res });
+        } else if (request.action === "CAPTURE_PAGE_FIELDS") {
+          const res = await capturePageValues();
+          sendResponse({ success: true, ...res });
+        } else if (request.action === "SCAN_FIELDS") {
+          await loadProfile();
+          const scan = scanFormFields();
+          sendResponse({
+            total: scan.total,
+            matchedCount: scan.matched.length,
+            unmatchedCount: scan.unmatched.length,
+            matchedLabels: scan.matched.map(m => m.matchResult.label || m.matchResult.def?.key)
+          });
+        } else if (request.action === "SUGGEST_UNMATCHED") {
+          await suggestNextUnrecognizedField();
+          sendResponse({ success: true });
+        } else if (request.action === "SHOW_TOAST") {
+          showToast(request.message || "");
+          sendResponse({ success: true });
+        } else {
+          sendResponse({ success: false, error: "Unknown action" });
+        }
+      } catch (err) {
+        sendResponse({ success: false, error: err?.message || String(err) });
       }
     })();
     return true; // Keep channel open for async response
@@ -1423,7 +1615,7 @@
   }
 
   // 13. Initialization
-  if (typeof window !== 'undefined' && typeof document !== 'undefined' && !window.__applypilot_testing) {
+  if (typeof window !== 'undefined' && typeof document !== 'undefined' && !window.__applypilot_testing && isRelevantFrame()) {
     loadProfile().then((profile) => {
       const adapters = getAtsAdapters();
       const isJobPage = adapters && typeof adapters.isJobApplicationPage === 'function'
@@ -1460,7 +1652,12 @@
       attachFieldCaptureListeners,
       capturePageValues,
       observeDynamicForms,
-      onMessageListener
+      onMessageListener,
+      isSensitiveField,
+      isRelevantFrame,
+      isProfileReady,
+      isCaptureEnabled,
+      mergeSequentialItems
     };
   }
 

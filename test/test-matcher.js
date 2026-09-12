@@ -18,7 +18,7 @@ console.log('✓ Manifest V3 and icon assets verified successfully!\n');
 
 // 2. Load Modules
 const { AtsAdapters } = require('../content/ats-adapters.js');
-const { DEFAULT_PROFILE } = require('../lib/storage.js');
+const { SAMPLE_PROFILE } = require('../lib/storage.js');
 
 console.log('--- 2. Testing ATS Field Matcher ---');
 
@@ -43,7 +43,7 @@ let total = 0;
 
 function assertMatch(testName, descriptor, expectedKey, expectedValSubstring) {
   total++;
-  const match = AtsAdapters.matchElement(descriptor, DEFAULT_PROFILE);
+  const match = AtsAdapters.matchElement(descriptor, SAMPLE_PROFILE);
   if (!match.matched) {
     console.error(`❌ FAILED: ${testName} - Not matched! Descriptor:`, descriptor);
     return;
@@ -61,31 +61,31 @@ function assertMatch(testName, descriptor, expectedKey, expectedValSubstring) {
 }
 
 // Greenhouse Tests
-assertMatch('Greenhouse First Name', mockDescriptor({ id: 'first_name', name: 'first_name', label: 'First Name *' }), 'firstName', 'Pritam');
-assertMatch('Greenhouse Last Name', mockDescriptor({ id: 'last_name', name: 'last_name', label: 'Last Name *' }), 'lastName', 'Rauniyar');
-assertMatch('Greenhouse Email', mockDescriptor({ id: 'email', name: 'email', label: 'Email *' }), 'email', 'pritam.rauniyar');
+assertMatch('Greenhouse First Name', mockDescriptor({ id: 'first_name', name: 'first_name', label: 'First Name *' }), 'firstName', 'Alex');
+assertMatch('Greenhouse Last Name', mockDescriptor({ id: 'last_name', name: 'last_name', label: 'Last Name *' }), 'lastName', 'Candidate');
+assertMatch('Greenhouse Email', mockDescriptor({ id: 'email', name: 'email', label: 'Email *' }), 'email', 'alex.candidate');
 assertMatch('Greenhouse Phone', mockDescriptor({ id: 'phone', name: 'phone', label: 'Phone *' }), 'phone', '234');
 assertMatch('Greenhouse LinkedIn', mockDescriptor({ id: 'job_app_linkedin', name: 'job_app[answers_attributes][linkedin]', label: 'LinkedIn Profile' }), 'linkedin', 'linkedin.com');
 assertMatch('Greenhouse Work Auth', mockDescriptor({ id: 'auth', label: 'Are you legally authorized to work in the United States?' }), 'workAuthorization', 'Yes');
 assertMatch('Greenhouse Sponsorship', mockDescriptor({ id: 'spon', label: 'Will you now or in the future require sponsorship?' }), 'requireSponsorship', 'No');
 
 // Lever Tests
-assertMatch('Lever Full Name', mockDescriptor({ name: 'name', label: 'Full Name' }), 'fullName', 'Pritam');
-assertMatch('Lever Current Company', mockDescriptor({ name: 'org', label: 'Current Company' }), 'currentCompany', 'Uber');
+assertMatch('Lever Full Name', mockDescriptor({ name: 'name', label: 'Full Name' }), 'fullName', 'Alex');
+assertMatch('Lever Current Company', mockDescriptor({ name: 'org', label: 'Current Company' }), 'currentCompany', 'Acme');
 assertMatch('Lever LinkedIn', mockDescriptor({ name: 'urls[linkedin]', label: 'LinkedIn URL' }), 'linkedin', 'linkedin.com');
 assertMatch('Lever GitHub', mockDescriptor({ name: 'urls[github]', label: 'GitHub URL' }), 'github', 'github.com');
 
 // Workday Tests
-assertMatch('Workday Legal First Name', mockDescriptor({ dataAutomationId: 'legalNameSection_firstName' }), 'firstName', 'Pritam');
-assertMatch('Workday Legal Last Name', mockDescriptor({ dataAutomationId: 'legalNameSection_lastName' }), 'lastName', 'Rauniyar');
-assertMatch('Workday Email', mockDescriptor({ dataAutomationId: 'email' }), 'email', 'pritam.rauniyar');
+assertMatch('Workday Legal First Name', mockDescriptor({ dataAutomationId: 'legalNameSection_firstName' }), 'firstName', 'Alex');
+assertMatch('Workday Legal Last Name', mockDescriptor({ dataAutomationId: 'legalNameSection_lastName' }), 'lastName', 'Candidate');
+assertMatch('Workday Email', mockDescriptor({ dataAutomationId: 'email' }), 'email', 'alex.candidate');
 assertMatch('Workday Phone', mockDescriptor({ dataAutomationId: 'phone-number' }), 'phone', '234');
 assertMatch('Workday City', mockDescriptor({ dataAutomationId: 'addressSection_city' }), 'city', 'San Francisco');
 assertMatch('Workday Country', mockDescriptor({ dataAutomationId: 'addressSection_country' }), 'country', 'United States');
 assertMatch('Workday Job Title', mockDescriptor({ dataAutomationId: 'jobTitle', label: 'Job Title*' }), 'currentTitle', 'Software Engineer');
-assertMatch('Workday Company', mockDescriptor({ dataAutomationId: 'company', label: 'Company*' }), 'currentCompany', 'Uber');
+assertMatch('Workday Company', mockDescriptor({ dataAutomationId: 'company', label: 'Company*' }), 'currentCompany', 'Acme');
 assertMatch('Workday Location', mockDescriptor({ dataAutomationId: 'location', label: 'Location' }), 'jobLocation', 'San Francisco');
-assertMatch('Workday School', mockDescriptor({ dataAutomationId: 'school', label: 'School or University*' }), 'school', 'Motilal Nehru');
+assertMatch('Workday School', mockDescriptor({ dataAutomationId: 'school', label: 'School or University*' }), 'school', 'Example Institute');
 assertMatch('Workday Degree', mockDescriptor({ dataAutomationId: 'degree', label: 'Degree*' }), 'degree', 'Bachelor');
 assertMatch('Workday Field of Study', mockDescriptor({ dataAutomationId: 'fieldOfStudy', label: 'Field of Study' }), 'fieldOfStudy', 'Electronics');
 assertMatch('Workday GPA', mockDescriptor({ dataAutomationId: 'gpa', label: 'Overall Result (GPA)' }), 'gpa', '3.8');
@@ -103,7 +103,7 @@ assertMatch('Custom Field: Tech Challenge', mockDescriptor({ label: 'Describe a 
 // Self-Learning Feedback Memory Test
 console.log('\n--- 3. Testing Self-Learning Feedback Loop Memory ---');
 const testProfileWithMemory = {
-  ...DEFAULT_PROFILE,
+  ...SAMPLE_PROFILE,
   learnedMemory: [
     {
       fieldLabel: 'What is your experience with Kubernetes and Docker in production?',
@@ -127,7 +127,7 @@ if (learnedMatch.matched && learnedMatch.source === 'learnedMemory') {
 // --- 4. Testing Resilient JSON Parser & Repair ---
 console.log("\n--- 4. Testing Resilient JSON Parser & Repair ---");
 const { GeminiService } = require('../lib/gemini-service.js');
-const truncatedSample = `{ "personal": { "firstName": "Pritam", "lastName": "Rauniyar", "fullName": "Pritam Rauniyar", "email": "pritamrauniyar.np@gmail.com", "phone": "+91-6201413304", "location": "Bengaluru, India", "city": "Bengaluru", "state": "", "postalCode": "", "country": "India", "address": "" }, "links":`;
+const truncatedSample = `{ "personal": { "firstName": "Pritam", "lastName": "Rauniyar", "fullName": "Alex Candidate", "email": "pritamrauniyar.np@gmail.com", "phone": "+91-6201413304", "location": "Bengaluru, India", "city": "Bengaluru", "state": "", "postalCode": "", "country": "India", "address": "" }, "links":`;
 
 const repaired = GeminiService.parseAndRepairJson(truncatedSample);
 total++;
@@ -141,9 +141,9 @@ if (repaired && repaired.personal && repaired.personal.firstName === "Pritam" &&
 // --- 5. Testing Multi-Experience Sequential Matching ---
 console.log("\n--- 5. Testing Multi-Experience Sequential Matching ---");
 const multiExpProfile = {
-  ...DEFAULT_PROFILE,
+  ...SAMPLE_PROFILE,
   experience: {
-    ...DEFAULT_PROFILE.experience,
+    ...SAMPLE_PROFILE.experience,
     items: [
       {
         id: "exp-1",
@@ -158,7 +158,7 @@ const multiExpProfile = {
       {
         id: "exp-2",
         title: "Software Engineer II",
-        company: "Uber",
+        company: "Acme Corp",
         location: "San Francisco, CA",
         startDate: "2021-06",
         endDate: "2022-12",
@@ -200,7 +200,7 @@ if (m0_job.value === "Senior Frontend Engineer" && m0_comp.value === "Meta") {
 const m1_job = AtsAdapters.matchElement(jobDesc, multiExpProfile, 1);
 const m1_comp = AtsAdapters.matchElement(compDesc, multiExpProfile, 1);
 total += 2;
-if (m1_job.value === "Software Engineer II" && m1_comp.value === "Uber") {
+if (m1_job.value === "Software Engineer II" && m1_comp.value === "Acme Corp") {
   console.log(`✓ [PASS] Multi-Exp Role #2 -> Matched: ${m1_job.value} at ${m1_comp.value}`);
   passed += 2;
 } else {
@@ -221,7 +221,7 @@ if (m2_job.value === "Associate Software Engineer" && m2_comp.value === "StartUp
 // 6. Testing Ignored Optional Fields Tracking
 console.log('\n--- 6. Testing Ignored Optional Fields Tracking ---');
 const profileWithIgnored = {
-  ...DEFAULT_PROFILE,
+  ...SAMPLE_PROFILE,
   ignoredOptionalFields: [
     {
       id: "ign-1",
@@ -261,7 +261,7 @@ if (m_ext.ignored === true && m_ext.matched === false) {
   console.error(`❌ FAILED: Phone Extension should be ignored. Result:`, m_ext);
 }
 
-if (m_req.matched === true && m_req.value === "Pritam") {
+if (m_req.matched === true && m_req.value === "Alex") {
   console.log(`✓ [PASS] Non-ignored Field: First Name remains matched`);
   passed++;
 } else {
@@ -379,9 +379,9 @@ const { calculateStringSimilarity, isNinetyPercentMatch } = require('../lib/stor
 
 // Test Higher Education Alias
 const descHigherEdu = mockDescriptor({ label: 'Higher Education' });
-const m_higherEdu = AtsAdapters.matchElement(descHigherEdu, DEFAULT_PROFILE);
+const m_higherEdu = AtsAdapters.matchElement(descHigherEdu, SAMPLE_PROFILE);
 total++;
-if (m_higherEdu.matched && m_higherEdu.value === 'Motilal Nehru National Institute Of Technology') {
+if (m_higherEdu.matched && m_higherEdu.value === 'Example Institute of Technology') {
   console.log(`✓ [PASS] Dynamic Alias: "Higher Education" -> "${m_higherEdu.value}"`);
   passed++;
 } else {
@@ -390,9 +390,9 @@ if (m_higherEdu.matched && m_higherEdu.value === 'Motilal Nehru National Institu
 
 // Test Highest Degree Alias
 const descHighestDeg = mockDescriptor({ label: 'Highest Degree' });
-const m_highestDeg = AtsAdapters.matchElement(descHighestDeg, DEFAULT_PROFILE);
+const m_highestDeg = AtsAdapters.matchElement(descHighestDeg, SAMPLE_PROFILE);
 total++;
-if (m_highestDeg.matched && m_highestDeg.value === 'Motilal Nehru National Institute Of Technology') {
+if (m_highestDeg.matched && m_highestDeg.value === 'Example Institute of Technology') {
   console.log(`✓ [PASS] Dynamic Alias: "Highest Degree" -> "${m_highestDeg.value}"`);
   passed++;
 } else {
@@ -401,7 +401,7 @@ if (m_highestDeg.matched && m_highestDeg.value === 'Motilal Nehru National Insti
 
 // Test Nested Major Resolution
 const descNestedMajor = mockDescriptor({ label: 'Higher Education - Major / Specialization' });
-const m_nestedMajor = AtsAdapters.matchElement(descNestedMajor, DEFAULT_PROFILE);
+const m_nestedMajor = AtsAdapters.matchElement(descNestedMajor, SAMPLE_PROFILE);
 total++;
 if (m_nestedMajor.matched && m_nestedMajor.value === 'Electronics and Communication Engineering') {
   console.log(`✓ [PASS] Dynamic Nested Detail: "Major / Specialization" -> "${m_nestedMajor.value}"`);
@@ -415,11 +415,11 @@ console.log('\n--- 10. Testing Company-Specific 90% Fuzzy Matching ---');
 
 // Test 90% fuzzy similarity helper
 total += 2;
-const simUber = isNinetyPercentMatch('Uber Technologies Inc', 'Uber');
+const simUber = isNinetyPercentMatch('Acme Corporation Inc', 'Acme Corp');
 const simMsft = isNinetyPercentMatch('Microsoft Corporation', 'Microsoft');
 
 if (simUber) {
-  console.log(`✓ [PASS] Fuzzy Matcher: "Uber Technologies Inc" matches "Uber" (>=90% token similarity)`);
+  console.log(`✓ [PASS] Fuzzy Matcher: "Acme Corporation Inc" matches "Acme Corp" (>=90% token similarity)`);
   passed++;
 } else {
   console.error(`❌ FAILED: Fuzzy Matcher failed for Uber!`);
@@ -434,12 +434,12 @@ if (simMsft) {
 
 // Test Company-Specific Question on Uber
 total += 2;
-const descWorkedUber = mockDescriptor({ label: 'Have you ever worked at Uber Technologies?' });
+const descWorkedUber = mockDescriptor({ label: 'Have you ever worked at Acme Corporation?' });
 descWorkedUber.url = 'https://uber.wd1.myworkdayjobs.com/apply';
-const m_uber = AtsAdapters.matchElement(descWorkedUber, DEFAULT_PROFILE);
+const m_uber = AtsAdapters.matchElement(descWorkedUber, SAMPLE_PROFILE);
 
 if (m_uber.matched && m_uber.value === 'Yes') {
-  console.log(`✓ [PASS] Company-Specific Rule: "Have you ever worked at Uber Technologies?" -> "${m_uber.value}"`);
+  console.log(`✓ [PASS] Company-Specific Rule: "Have you ever worked at Acme Corporation?" -> "${m_uber.value}"`);
   passed++;
 } else {
   console.error(`❌ FAILED: Worked at Uber should be "Yes". Got:`, m_uber);
@@ -448,7 +448,7 @@ if (m_uber.matched && m_uber.value === 'Yes') {
 // Test Company-Specific Question on Microsoft
 const descWorkedMsft = mockDescriptor({ label: 'Have you ever worked at Microsoft Corporation?' });
 descWorkedMsft.url = 'https://careers.microsoft.com/apply';
-const m_msft = AtsAdapters.matchElement(descWorkedMsft, DEFAULT_PROFILE);
+const m_msft = AtsAdapters.matchElement(descWorkedMsft, SAMPLE_PROFILE);
 
 if (m_msft.matched && m_msft.value === 'No') {
   console.log(`✓ [PASS] Company-Specific Rule: "Have you ever worked at Microsoft Corporation?" -> "${m_msft.value}"`);

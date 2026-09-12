@@ -22,12 +22,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('sp-btn-save-key').addEventListener('click', async () => {
     const key = document.getElementById('sp-api-key-input').value.trim();
     if (!key) {
-      alert("Please paste your Gemini API key.");
+      showSpStatus("Please paste your Gemini API key.", "error");
       return;
     }
     await StorageService.saveApiKey(key);
     document.getElementById('sp-api-banner').style.display = 'none';
-    alert("Gemini API key saved successfully!");
+    showSpStatus("Gemini API key saved.", "success");
     await loadData();
   });
 
@@ -205,7 +205,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('sp-btn-generate-essay').addEventListener('click', async () => {
     const prompt = document.getElementById('sp-ai-prompt').value.trim();
     if (!prompt) {
-      alert("Please enter a question or prompt first.");
+      showSpStatus("Please enter a question or prompt first.", "error");
       return;
     }
 
@@ -224,7 +224,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('sp-ai-result-box').style.display = 'block';
         document.getElementById('sp-ai-result').value = res.answer;
       } else {
-        alert(res?.error || "Error generating AI response. Check your Gemini API key.");
+        showSpStatus(res?.error || "Could not generate a response. Check your Gemini API key.", "error");
       }
     });
   });
@@ -240,6 +240,25 @@ document.addEventListener('DOMContentLoaded', async () => {
       btn.textContent = "📋 Copy";
     }, 1500);
   });
+
+  // Inline status banner - see the note in popup.js about avoiding alert().
+  let spStatusTimer = null;
+  function showSpStatus(message, kind = "info") {
+    const el = document.getElementById('sp-status-banner');
+    if (!el) return;
+    const palette = {
+      success: ["#ecfdf5", "#065f46"],
+      error: ["#fef2f2", "#991b1b"],
+      info: ["#f8fafc", "#475569"]
+    };
+    const [bg, fg] = palette[kind] || palette.info;
+    el.style.background = bg;
+    el.style.color = fg;
+    el.textContent = message;
+    el.style.display = 'block';
+    clearTimeout(spStatusTimer);
+    spStatusTimer = setTimeout(() => { el.style.display = 'none'; }, 4000);
+  }
 
   function escapeHtml(str) {
     if (!str) return '';

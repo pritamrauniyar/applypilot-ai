@@ -1,0 +1,24 @@
+{
+  "name": "applypilot-ai",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Privacy-first Chrome extension (Manifest V3) that autofills job applications across ATS platforms using your own resume data and your own Google Gemini API key.",
+  "license": "MIT",
+  "author": "Pritam Rauniyar (https://pritamrauniyar.com.np/)",
+  "homepage": "https://github.com/pritamrauniyar/applypilot-ai",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.js\"",
+    "test:watch": "node --test --watch \"test/*.js\"",
+    "coverage": "node --test --experimental-test-coverage \"test/*.js\"",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "check": "npm run lint && npm test"
+  },
+  "devDependencies": {
+    "eslint": "^9.13.0",
+    "globals": "^15.11.0"
+  }
+}

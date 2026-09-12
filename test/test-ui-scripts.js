@@ -443,6 +443,27 @@ function buildPopupDOM() {
   settingFloatingBadge.checked = true;
   body.appendChild(settingFloatingBadge);
 
+  // Privacy toggles. captureTypedValues and logFieldValues default OFF;
+  // aiKnowledgeSync defaults ON.
+  [
+    ['setting-capture-typed', false],
+    ['setting-log-values', false],
+    ['setting-ai-sync', true]
+  ].forEach(([id, defaultChecked]) => {
+    const el = new MockElement('INPUT');
+    el.id = id;
+    el.type = 'checkbox';
+    el.checked = defaultChecked;
+    body.appendChild(el);
+  });
+
+  // Data-management buttons.
+  ['btn-load-sample', 'btn-reset-profile'].forEach(id => {
+    const el = new MockElement('BUTTON');
+    el.id = id;
+    body.appendChild(el);
+  });
+
   const btnTestApiKey = new MockElement('BUTTON');
   btnTestApiKey.id = 'btn-test-api-key';
   body.appendChild(btnTestApiKey);
@@ -592,6 +613,12 @@ function buildSidepanelDOM() {
   banner.id = 'sp-api-banner';
   banner.style.display = 'none';
   body.appendChild(banner);
+
+  // Inline status banner that replaced alert() in the side panel.
+  const statusBanner = new MockElement('DIV');
+  statusBanner.id = 'sp-status-banner';
+  statusBanner.style.display = 'none';
+  body.appendChild(statusBanner);
 
   const keyInput = new MockElement('INPUT');
   keyInput.id = 'sp-api-key-input';
@@ -897,8 +924,8 @@ function setupMockEnv(mockDoc) {
     clearLogs: async () => { mockLogs = []; }
   };
 
-  let mockRuntimeHandlers = {};
-  let mockTabHandlers = {};
+  const mockRuntimeHandlers = {};
+  const mockTabHandlers = {};
 
   global.chrome = {
     runtime: {
@@ -934,6 +961,11 @@ function setupMockEnv(mockDoc) {
     setSyncQueue: (q) => { mockSyncQueue = q; },
     alerts,
     confirms,
+    // Inline status messaging replaced alert(); read whichever surface is present.
+    lastStatus: () => {
+      const el = mockDoc.getElementById('save-status') || mockDoc.getElementById('sp-status-banner');
+      return el ? el.textContent : '';
+    },
     getCopied: () => mockClipboard._copied,
     setConfirmReturn: (val) => { confirmReturn = val; },
     setRuntimeHandler: (action, fn) => { mockRuntimeHandlers[action] = fn; },
@@ -995,7 +1027,7 @@ test('Popup UI: Tabs, Settings, and API Key Verification', async (t) => {
   // Test Quick API Key Save - Empty error
   doc.getElementById('quick-api-key').value = "   ";
   doc.getElementById('btn-quick-save-key').click();
-  assert.strictEqual(env.alerts[env.alerts.length - 1], "Please paste your Gemini API key first.");
+  assert.strictEqual(env.lastStatus(), "Please paste your Gemini API key first.");
 
   // Test Quick API Key Save - Success
   doc.getElementById('quick-api-key').value = "AIzaSyNewValidKey";
@@ -1007,7 +1039,7 @@ test('Popup UI: Tabs, Settings, and API Key Verification', async (t) => {
   // Test Test API Key Button - Empty error
   doc.getElementById('setting-api-key').value = " ";
   doc.getElementById('btn-test-api-key').click();
-  assert.strictEqual(env.alerts[env.alerts.length - 1], "Please enter your Gemini API key in the input box first.");
+  assert.strictEqual(env.lastStatus(), "Please enter your Gemini API key in the input box first.");
 
   // Test Test API Key Button - Successful connection
   doc.getElementById('setting-api-key').value = "AIzaSyVerifiedKey";
@@ -1171,7 +1203,7 @@ test('Popup UI: Dynamic Knowledge Store Search, Add, Delete and Category Groupin
   doc.getElementById('df-new-label').value = "";
   doc.getElementById('df-new-value').value = "";
   submitBtn.click();
-  assert.strictEqual(env.alerts[env.alerts.length - 1], "Please provide at least a concept name / label and primary answer value.");
+  assert.strictEqual(env.lastStatus(), "Please provide at least a concept name and an answer value.");
 
   // Test Add Dynamic Field - Success with aliases
   doc.getElementById('df-new-label').value = "Preferred IDE";
@@ -1235,12 +1267,12 @@ test('Popup UI: In-Page Autofill, AI Assist, and Page Learning Actions', async (
   // Test Autofill application button
   await doc.getElementById('btn-autofill-page').click();
   assert.strictEqual(autofillCalled, true);
-  assert.ok(env.alerts[env.alerts.length - 1].includes("Successfully filled 9 fields"));
+  assert.ok(env.lastStatus().includes("Filled 9 fields"));
 
   // Test Autofill with 0 / empty response
   env.setTabHandler('AUTOFILL', (msg, cb) => { cb({}); });
   await doc.getElementById('btn-autofill-page').click();
-  assert.ok(env.alerts[env.alerts.length - 1].includes("No standard inputs detected"));
+  assert.ok(env.lastStatus().includes("No fillable inputs detected"));
 
   // Test Scan Unmatched with AI button
   doc.getElementById('btn-scan-unmatched').click();
@@ -1250,19 +1282,19 @@ test('Popup UI: In-Page Autofill, AI Assist, and Page Learning Actions', async (
   // Test Capture & Remember Page Details
   await doc.getElementById('btn-capture-page').click();
   assert.strictEqual(captureCalled, true);
-  assert.ok(env.alerts[env.alerts.length - 1].includes("Successfully captured & saved 4 fields"));
+  assert.ok(env.lastStatus().includes("Captured and saved 4 fields"));
 
   // Test Capture when already recorded
   env.setTabHandler('CAPTURE_PAGE_FIELDS', (msg, cb) => { cb({}); });
   await doc.getElementById('btn-capture-page').click();
-  assert.ok(env.alerts[env.alerts.length - 1].includes("already recorded"));
+  assert.ok(env.lastStatus().includes("already in your profile"));
 });
 
 test('Popup UI: Resume Ingestion (PDF Text, Scanned/Image, Raw Text Paste)', async (t) => {
   const doc = buildPopupDOM();
   const env = setupMockEnv(doc);
 
-  let parsedResponse = {
+  const parsedResponse = {
     parsed: {
       personal: { firstName: "Pritam", lastName: "Rauniyar", email: "p@example.com" },
       links: { linkedin: "https://linkedin.com/in/pritam" },
@@ -1353,12 +1385,12 @@ test('Popup UI: Resume Ingestion (PDF Text, Scanned/Image, Raw Text Paste)', asy
   // Test 6: Parse raw pasted text - empty error
   doc.getElementById('resume-text-input').value = "   ";
   doc.getElementById('btn-parse-resume-text').click();
-  assert.strictEqual(env.alerts[env.alerts.length - 1], "Please paste your resume text first.");
+  assert.strictEqual(env.lastStatus(), "Please paste your resume text first.");
 
   // Test 7: Parse raw pasted text - success
   doc.getElementById('resume-text-input').value = "Pritam Rauniyar\nExperienced Architect & Engineer\nSkills: AI, Distributed Systems";
   await doc.getElementById('btn-parse-resume-text').click();
-  assert.ok(env.alerts[env.alerts.length - 1].includes("Successfully parsed resume text"));
+  assert.ok(env.lastStatus().includes("Resume parsed"));
 
   // Test 8: Parse raw pasted text - error from Gemini
   env.setRuntimeHandler('PARSE_RESUME_TEXT', (msg, cb) => {
@@ -1366,7 +1398,7 @@ test('Popup UI: Resume Ingestion (PDF Text, Scanned/Image, Raw Text Paste)', asy
   });
   doc.getElementById('resume-text-input').value = "Pritam Rauniyar - Resume Text";
   await doc.getElementById('btn-parse-resume-text').click();
-  assert.strictEqual(env.alerts[env.alerts.length - 1], "Gemini quota exceeded");
+  assert.strictEqual(env.lastStatus(), "Gemini quota exceeded");
 });
 
 test('Popup UI: Activity Logs Feed, Telemetry Metrics, Ignored Fields and Exporting', async (t) => {
@@ -1488,12 +1520,12 @@ test('Sidepanel Companion: Initialization, Form Controls, Rescan and Quick Copy 
   // Test Save API key in side panel - empty error
   doc.getElementById('sp-api-key-input').value = "  ";
   doc.getElementById('sp-btn-save-key').click();
-  assert.strictEqual(env.alerts[env.alerts.length - 1], "Please paste your Gemini API key.");
+  assert.strictEqual(env.lastStatus(), "Please paste your Gemini API key.");
 
   // Test Save API key in side panel - success
   doc.getElementById('sp-api-key-input').value = "AIzaSySidepanelSavedKey";
   await doc.getElementById('sp-btn-save-key').click();
-  assert.strictEqual(env.alerts[env.alerts.length - 1], "Gemini API key saved successfully!");
+  assert.strictEqual(env.lastStatus(), "Gemini API key saved.");
   assert.strictEqual(doc.getElementById('sp-api-banner').style.display, "none");
 
   // Test Rescan button
@@ -1528,7 +1560,7 @@ test('Sidepanel Companion: Initialization, Form Controls, Rescan and Quick Copy 
   // Test AI Essay Scratchpad - empty prompt error
   doc.getElementById('sp-ai-prompt').value = "   ";
   doc.getElementById('sp-btn-generate-essay').click();
-  assert.strictEqual(env.alerts[env.alerts.length - 1], "Please enter a question or prompt first.");
+  assert.strictEqual(env.lastStatus(), "Please enter a question or prompt first.");
 
   // Test AI Essay Scratchpad - successful answer generation
   env.setRuntimeHandler('GENERATE_AI_ANSWER', (msg, cb) => {
@@ -1552,7 +1584,7 @@ test('Sidepanel Companion: Initialization, Form Controls, Rescan and Quick Copy 
   });
   doc.getElementById('sp-ai-prompt').value = "What is your leadership style?";
   await doc.getElementById('sp-btn-generate-essay').click();
-  assert.strictEqual(env.alerts[env.alerts.length - 1], "Gemini Rate Limit Exceeded");
+  assert.strictEqual(env.lastStatus(), "Gemini Rate Limit Exceeded");
 
   // Test Sidepanel active tab with runtime error
   global.chrome.runtime.lastError = { message: "Cannot connect to tab" };
@@ -1570,9 +1602,10 @@ test('Popup UI: Edge Cases, Error States, Fallbacks and Model Upgrades', async (
   const doc = buildPopupDOM();
   const env = setupMockEnv(doc);
 
-  // Configure profile with legacy model, empty experience items, and no API key
+  // Configure profile with a retired model id, empty experience items, no API key
   const profile = env.getProfile();
   profile.settings.model = "gemini-2.5-flash";
+  profile.settings.availableModels = ["gemini-2.5-flash", "gemini-2.0-flash"];
   profile.settings.geminiApiKey = "";
   profile.experience.items = [];
   env.setProfile(profile);
@@ -1587,9 +1620,10 @@ test('Popup UI: Edge Cases, Error States, Fallbacks and Model Upgrades', async (
   require('../popup/popup.js');
   await doc.dispatchDomContentLoaded();
 
-  // 1. Verify legacy model was automatically upgraded
-  assert.strictEqual(doc.getElementById('setting-model').value, "gemini-3.6-flash");
-  assert.strictEqual(env.getProfile().settings.model, "gemini-3.6-flash");
+  // 1. A currently-available model the user picked must be preserved, not
+  //    silently rewritten to some hardcoded id.
+  assert.strictEqual(doc.getElementById('setting-model').value, "gemini-2.5-flash");
+  assert.strictEqual(env.getProfile().settings.model, "gemini-2.5-flash");
 
   // 2. Verify API key banner is displayed when key is empty
   assert.strictEqual(doc.getElementById('api-key-banner').style.display, "block");

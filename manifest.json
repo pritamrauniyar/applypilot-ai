@@ -1,18 +1,27 @@
 {
   "manifest_version": 3,
   "name": "ApplyPilot AI — Smart Job Application Autofill",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Auto-fills job applications (Greenhouse, Lever, Workday, Ashby) using your resume data, custom fields, and free Gemini AI.",
+  "minimum_chrome_version": "116",
+  "homepage_url": "https://github.com/pritamrauniyar/applypilot-ai",
   "permissions": [
     "storage",
     "activeTab",
-    "scripting",
+    "alarms",
+    "notifications",
     "sidePanel",
     "contextMenus"
   ],
-  "host_permissions": [
+  "optional_host_permissions": [
     "<all_urls>"
   ],
+  "host_permissions": [
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://generativelanguage.googleapis.com;"
+  },
   "action": {
     "default_popup": "popup/popup.html",
     "default_title": "ApplyPilot AI",
