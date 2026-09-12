@@ -50,12 +50,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       const profile = await StorageService.getProfile();
       const apiKey = profile.settings?.geminiApiKey;
       if (!apiKey) {
-        chrome.notifications.create({
-          type: "basic",
-          iconUrl: "icons/icon-48.png",
-          title: "ApplyPilot AI",
-          message: "Please set your free Gemini API key in ApplyPilot Settings first."
-        });
+        await notifyUser(tab.id, "Add your free Gemini API key in ApplyPilot Settings to use AI answers.");
         return;
       }
       await chrome.tabs.sendMessage(tab.id, { action: "SUGGEST_UNMATCHED" });
@@ -63,30 +58,70 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       console.warn("Error running AI answer context action:", e);
     }
   } else if (info.menuItemId === "applypilot-open-sidepanel") {
-    await chrome.sidePanel.open({ windowId: tab.windowId });
+    // A context-menu click is a user gesture, so opening directly is allowed here.
+    try {
+      await chrome.sidePanel.open({ windowId: tab.windowId });
+    } catch (e) {
+      console.warn("Could not open side panel:", e);
+    }
   }
 });
 
-// 2b. Background Intelligence Compiler & Debounced Queue Processor
-let refinementTimer = null;
+// Surface a message to the user. Prefers an in-page toast (no extra permission,
+// and it appears where the user is looking); falls back to chrome.notifications
+// only when that API is actually available.
+async function notifyUser(tabId, message) {
+  if (tabId) {
+    try {
+      await chrome.tabs.sendMessage(tabId, { action: "SHOW_TOAST", message });
+      return;
+    } catch (e) {
+      // Content script not present on this tab - fall through.
+    }
+  }
+  if (typeof chrome !== 'undefined' && chrome.notifications?.create) {
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: "icons/icon-48.png",
+      title: "ApplyPilot AI",
+      message
+    });
+    return;
+  }
+  console.warn("[ApplyPilot] Could not surface message to user:", message);
+}
 
-function scheduleBackgroundRefinement(delayMs = 25000) {
-  if (refinementTimer) clearTimeout(refinementTimer);
-  refinementTimer = setTimeout(async () => {
-    await processBackgroundSyncQueue();
-  }, delayMs);
+// 2b. Background Intelligence Compiler & Debounced Queue Processor
+//
+// MV3 service workers are evicted after ~30s idle, which silently killed the
+// setTimeout this used to rely on (and the whole queue with it). chrome.alarms
+// survives eviction and wakes the worker back up to run the job.
+const REFINEMENT_ALARM = "applypilot-background-refinement";
+
+// chrome.alarms enforces a 1-minute floor for regular extensions.
+const REFINEMENT_DELAY_MINUTES = 1;
+
+function scheduleBackgroundRefinement() {
+  if (typeof chrome === 'undefined' || !chrome.alarms) return;
+  // create() replaces an existing alarm of the same name, giving us the
+  // debounce behaviour the old clearTimeout/setTimeout pair provided.
+  chrome.alarms.create(REFINEMENT_ALARM, { delayInMinutes: REFINEMENT_DELAY_MINUTES });
+}
+
+if (typeof chrome !== 'undefined' && chrome.alarms?.onAlarm) {
+  chrome.alarms.onAlarm.addListener(async (alarm) => {
+    if (alarm.name === REFINEMENT_ALARM) {
+      await processBackgroundSyncQueue();
+    }
+  });
 }
 
 async function processBackgroundSyncQueue() {
   try {
-    const profile = await StorageService.getProfile();
-    const apiKey = profile.settings?.geminiApiKey;
     const pendingItems = await StorageService.getPendingSyncQueue();
-
     if (!pendingItems || pendingItems.length === 0) return;
 
     // Clear queue so incoming items can gather cleanly
-    profile.pendingSyncQueue = [];
     await StorageService.clearPendingSyncQueue();
 
     // Ensure all user_cleared_field items are permanently cleared from profile and marked ignored
@@ -99,8 +134,19 @@ async function processBackgroundSyncQueue() {
       }
     }
 
+    // Re-read AFTER the mutations above. Reading earlier and saving that
+    // snapshot at the end would roll back every clearPendingSyncQueue() and
+    // handleUserClearedField() change just committed.
+    const profile = await StorageService.getProfile();
+    const apiKey = profile.settings?.geminiApiKey;
+
     if (!apiKey) {
       console.log("[ApplyPilot Background] Telemetry queued. Background Gemini compiler idle (no API key configured).");
+      return;
+    }
+
+    if (profile.settings?.aiKnowledgeSync === false) {
+      console.log("[ApplyPilot Background] AI knowledge sync disabled by user. Skipping compiler.");
       return;
     }
 
@@ -112,27 +158,29 @@ async function processBackgroundSyncQueue() {
     });
 
     if (result) {
+      // Both updates below go through the serialized StorageService mutators
+      // rather than hand-patching a local snapshot, so a content script writing
+      // concurrently from another tab or frame cannot be clobbered.
+
       // 1. Update Dynamic Fields
       if (Array.isArray(result.updatedFields) && result.updatedFields.length > 0) {
-        profile.dynamicFields = profile.dynamicFields || [];
+        const existing = await StorageService.getDynamicFields();
         for (const uf of result.updatedFields) {
-          const idx = profile.dynamicFields.findIndex(f => f.canonicalKey === uf.canonicalKey || f.id === uf.id);
-          if (idx >= 0) {
-            profile.dynamicFields[idx] = {
-              ...profile.dynamicFields[idx],
+          const match = existing.find(f => f.canonicalKey === uf.canonicalKey || f.id === uf.id);
+          if (match) {
+            await StorageService.updateDynamicField(match.id, {
               ...uf,
-              aliases: Array.from(new Set([...(profile.dynamicFields[idx].aliases || []), ...(uf.aliases || [])]))
-            };
+              id: match.id,
+              aliases: Array.from(new Set([...(match.aliases || []), ...(uf.aliases || [])]))
+            });
           } else {
-            profile.dynamicFields.push({
-              id: uf.id || ("df-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6)),
+            await StorageService.addDynamicField({
               category: uf.category || "Custom / Learned",
               canonicalKey: uf.canonicalKey || `custom.${Date.now()}`,
               label: uf.label || "Custom Field",
               aliases: uf.aliases || [],
               value: uf.value || "",
-              companyRules: uf.companyRules || null,
-              stats: { timesSuggested: 0, timesAccepted: 0, timesCorrected: 0, confidence: 1.0 }
+              companyRules: uf.companyRules || null
             });
           }
         }
@@ -140,22 +188,13 @@ async function processBackgroundSyncQueue() {
 
       // 2. Update Recommended Ignored Fields
       if (Array.isArray(result.recommendedIgnored) && result.recommendedIgnored.length > 0) {
-        profile.ignoredOptionalFields = profile.ignoredOptionalFields || [];
         for (const ign of result.recommendedIgnored) {
           const label = (typeof ign === "string" ? ign : (ign.label || ign.fieldLabel || "")).trim();
-          if (label && !profile.ignoredOptionalFields.some(f => f.label.toLowerCase() === label.toLowerCase())) {
-            profile.ignoredOptionalFields.push({
-              id: "ign-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6),
-              label: label,
-              pattern: label.toLowerCase(),
-              keywords: [label.toLowerCase()],
-              ignoredAt: new Date().toISOString()
-            });
+          if (label) {
+            await StorageService.addIgnoredOptionalField({ label, keywords: [label.toLowerCase()] });
           }
         }
       }
-
-      await StorageService.saveProfile(profile);
 
       await AuditLogger.log({
         actionType: "background_sync",
@@ -184,6 +223,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         case "SAVE_PROFILE": {
           await StorageService.saveProfile(request.profile);
           sendResponse({ success: true });
+          break;
+        }
+
+        case "GET_ONBOARDING_STATE": {
+          const onboarded = await StorageService.isOnboardingComplete();
+          sendResponse({ success: true, onboarded });
+          break;
+        }
+
+        case "COMPLETE_ONBOARDING": {
+          await StorageService.completeOnboarding();
+          sendResponse({ success: true });
+          break;
+        }
+
+        case "RESET_PROFILE": {
+          const blank = await StorageService.resetProfile();
+          await AuditLogger.clearLogs();
+          sendResponse({ success: true, profile: blank });
+          break;
+        }
+
+        case "LOAD_SAMPLE_PROFILE": {
+          const sample = await StorageService.loadSampleProfile();
+          sendResponse({ success: true, profile: sample });
           break;
         }
 
@@ -314,9 +378,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
 
         case "OPEN_SIDEPANEL": {
-          if (sender.tab?.windowId) {
+          // A user gesture in a content script does NOT carry into the worker, so
+          // sidePanel.open() from here is rejected by Chrome. Enable open-on-action
+          // instead and tell the caller to point the user at the toolbar icon.
+          if (!sender.tab?.windowId) {
+            sendResponse({ success: false, error: "No window context available for the side panel." });
+            break;
+          }
+          try {
             await chrome.sidePanel.open({ windowId: sender.tab.windowId });
             sendResponse({ success: true });
+          } catch (e) {
+            sendResponse({
+              success: false,
+              error: "Chrome only opens the side panel from a direct extension gesture. Click the ApplyPilot toolbar icon, then 'Open Side Panel'."
+            });
           }
           break;
         }
@@ -345,7 +421,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return;
           }
 
-          const model = request.model || profile.settings?.model || "gemini-3.6-flash";
+          // Empty/absent means auto-detect from the live ListModels response.
+          const model = request.model || profile.settings?.model || null;
           const answer = await GeminiService.answerOpenEndedQuestion({
             question: request.question,
             jobTitle: request.jobTitle,
@@ -374,7 +451,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return;
           }
 
-          const model = request.model || profile.settings?.model || "gemini-3.6-flash";
+          // Empty/absent means auto-detect from the live ListModels response.
+          const model = request.model || profile.settings?.model || null;
           const suggestion = await GeminiService.suggestFieldAnswer({
             fieldLabel: request.fieldLabel,
             fieldType: request.fieldType,
@@ -397,7 +475,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return;
           }
 
-          const model = request.model || profile.settings?.model || "gemini-3.6-flash";
+          // Empty/absent means auto-detect from the live ListModels response.
+          const model = request.model || profile.settings?.model || null;
           const parsed = await GeminiService.parseResumeText(request.resumeText, apiKey, model);
           sendResponse({ success: true, parsed });
           break;
@@ -411,7 +490,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return;
           }
 
-          const model = request.model || profile.settings?.model || "gemini-3.6-flash";
+          // Empty/absent means auto-detect from the live ListModels response.
+          const model = request.model || profile.settings?.model || null;
           const parsed = await GeminiService.parseResumeFile(request.base64Data, request.mimeType, apiKey, model);
           sendResponse({ success: true, parsed });
           break;

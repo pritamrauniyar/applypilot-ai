@@ -45,7 +45,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-quick-save-key').addEventListener('click', async () => {
     const key = document.getElementById('quick-api-key').value.trim();
     if (!key) {
-      alert("Please paste your Gemini API key first.");
+      showStatus("Please paste your Gemini API key first.", "error");
       return;
     }
     await StorageService.saveApiKey(key);
@@ -68,7 +68,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const btn = document.getElementById('btn-test-api-key');
 
     if (!key) {
-      alert("Please enter your Gemini API key in the input box first.");
+      showStatus("Please enter your Gemini API key in the input box first.", "error");
       return;
     }
 
@@ -90,7 +90,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         resultBox.style.background = "#ecfdf5";
         resultBox.style.color = "#065f46";
         resultBox.style.border = "1px solid #a7f3d0";
-        resultBox.innerHTML = `<strong>✓ Connection Verified!</strong><br>${res.message}<br>Active Model: <code>${res.selectedModel}</code>`;
+        // res.message and res.selectedModel originate from a remote API response,
+        // so they are escaped like any other untrusted string.
+        resultBox.innerHTML =
+          `<strong>✓ Connection Verified!</strong><br>${escapeHtml(res.message)}<br>` +
+          `Active Model: <code>${escapeHtml(res.selectedModel)}</code>`;
+
+        // Offer exactly the models this key can reach, and remember them so the
+        // dropdown stays populated next time the popup opens.
+        populateModelOptions(res.models || [], document.getElementById('setting-model').value || "");
+        if (activeProfile) {
+          activeProfile.settings = activeProfile.settings || {};
+          activeProfile.settings.availableModels = res.models || [];
+          StorageService.saveProfile(activeProfile);
+        }
       } else {
         resultBox.style.background = "#fef2f2";
         resultBox.style.color = "#991b1b";
@@ -251,23 +264,48 @@ document.addEventListener('DOMContentLoaded', async () => {
     // AI & Settings
     const apiKey = p.settings?.geminiApiKey || "";
     document.getElementById('setting-api-key').value = apiKey;
-    let currentModel = p.settings?.model || "gemini-3.6-flash";
-    if (currentModel.includes("2.5") || currentModel.includes("2.0") || currentModel.includes("1.5")) {
-      currentModel = "gemini-3.6-flash";
-      if (activeProfile && activeProfile.settings) {
-        activeProfile.settings.model = currentModel;
-        StorageService.saveProfile(activeProfile);
-      }
-    }
-    document.getElementById('setting-model').value = currentModel;
-    document.getElementById('setting-tone').value = p.settings?.answerTone || "Technical & Impactful";
+    // "" means auto-detect. Any stored id is offered as-is so the user's choice
+    // survives even before the model list has been refreshed from the API.
+    const currentModel = p.settings?.model || "";
+    populateModelOptions(p.settings?.availableModels || [], currentModel);
+    document.getElementById('setting-tone').value = p.settings?.answerTone || "Professional & Impactful";
     document.getElementById('setting-floating-badge').checked = p.settings?.showFloatingBadge !== false;
+    document.getElementById('setting-capture-typed').checked = p.settings?.captureTypedValues === true;
+    document.getElementById('setting-log-values').checked = p.settings?.logFieldValues === true;
+    document.getElementById('setting-ai-sync').checked = p.settings?.aiKnowledgeSync !== false;
 
     // Show instant banner if API key is not yet configured
     const banner = document.getElementById('api-key-banner');
     if (banner) {
       banner.style.display = apiKey ? 'none' : 'block';
     }
+  }
+
+  // Rebuild the model <select> from whatever the key actually exposes.
+  // Options are created via the DOM API rather than innerHTML: these strings
+  // come back from a remote API response and must never be parsed as markup.
+  function populateModelOptions(models, selected) {
+    const select = document.getElementById('setting-model');
+    if (!select) return;
+
+    select.textContent = '';
+
+    const auto = document.createElement('option');
+    auto.value = '';
+    auto.textContent = 'Auto-detect best available model';
+    select.appendChild(auto);
+
+    const list = Array.isArray(models) ? models.slice() : [];
+    if (selected && !list.includes(selected)) list.unshift(selected);
+
+    for (const model of list) {
+      const opt = document.createElement('option');
+      opt.value = model;
+      opt.textContent = model;
+      select.appendChild(opt);
+    }
+
+    select.value = selected || '';
   }
 
   // 4. Save Profile Form
@@ -350,8 +388,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       geminiApiKey: document.getElementById('setting-api-key').value.trim(),
       model: document.getElementById('setting-model').value,
       answerTone: document.getElementById('setting-tone').value,
-      showFloatingBadge: document.getElementById('setting-floating-badge').checked
+      showFloatingBadge: document.getElementById('setting-floating-badge').checked,
+      captureTypedValues: document.getElementById('setting-capture-typed')?.checked === true,
+      logFieldValues: document.getElementById('setting-log-values')?.checked === true,
+      aiKnowledgeSync: document.getElementById('setting-ai-sync')?.checked !== false
     };
+
+    // Saving real details is what marks onboarding complete and unlocks autofill.
+    if (activeProfile.personal?.email && (activeProfile.personal?.firstName || activeProfile.personal?.fullName)) {
+      activeProfile.onboardingComplete = true;
+    }
 
     await StorageService.saveProfile(activeProfile);
 
@@ -507,7 +553,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const aliasesRaw = document.getElementById('df-new-aliases')?.value.trim();
 
       if (!label || !value) {
-        alert("Please provide at least a concept name / label and primary answer value.");
+        showStatus("Please provide at least a concept name and an answer value.", "error");
         return;
       }
 
@@ -579,10 +625,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       `;
 
       if (res && res.filledCount !== undefined) {
-        alert(`ApplyPilot AI: Successfully filled ${res.filledCount} fields!`);
+        showStatus(`Filled ${res.filledCount} fields on this page.`, "success");
         inspectActiveTab();
       } else {
-        alert("ApplyPilot AI: No standard inputs detected or form already filled.");
+        showStatus("No fillable inputs detected, or the form is already filled.", "info");
       }
     });
   });
@@ -603,11 +649,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       chrome.tabs.sendMessage(currentTab.id, { action: "CAPTURE_PAGE_FIELDS" }, async (res) => {
         captureBtn.textContent = "📥 Capture & Remember Page Details";
         if (res && res.capturedCount !== undefined) {
-          alert(`ApplyPilot AI: Successfully captured & saved ${res.capturedCount} fields into your memory!`);
+          showStatus(`Captured and saved ${res.capturedCount} fields.`, "success");
           await refreshProfile();
           inspectActiveTab();
         } else {
-          alert("ApplyPilot AI: All current details on this page are already recorded.");
+          showStatus("Everything on this page is already in your profile.", "info");
         }
       });
     });
@@ -658,7 +704,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     statusEl.textContent = `Reading ${file.name}...`;
     statusEl.style.color = "var(--primary)";
 
-    const chosenModel = document.getElementById('setting-model')?.value || activeProfile?.settings?.model || "gemini-3.6-flash";
+    const chosenModel = document.getElementById('setting-model')?.value || activeProfile?.settings?.model || null;
 
     try {
       // 1. First extract text directly from the file client-side
@@ -728,11 +774,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-parse-resume-text').addEventListener('click', async () => {
     const text = document.getElementById('resume-text-input').value.trim();
     if (!text) {
-      alert("Please paste your resume text first.");
+      showStatus("Please paste your resume text first.", "error");
       return;
     }
 
-    const chosenModel = document.getElementById('setting-model')?.value || activeProfile?.settings?.model || "gemini-3.6-flash";
+    const chosenModel = document.getElementById('setting-model')?.value || activeProfile?.settings?.model || null;
     const btn = document.getElementById('btn-parse-resume-text');
     btn.textContent = `Extracting with Gemini AI (${chosenModel})...`;
     btn.disabled = true;
@@ -747,9 +793,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (res && res.parsed) {
         applyParsedResume(res.parsed);
-        alert("ApplyPilot AI: Successfully parsed resume text! Profile updated.");
+        showStatus("Resume parsed. Your profile has been updated.", "success");
       } else {
-        alert(res?.error || "Error parsing resume text.");
+        showStatus(res?.error || "Could not parse that resume text.", "error");
       }
     });
   });
@@ -977,7 +1023,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         <span style="font-size: 11px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;" title="${escapeHtml(item.label)}">
           🚫 ${escapeHtml(item.label)}
         </span>
-        <button class="ap-btn-unignore ap-btn ap-btn-outline ap-btn-sm" data-id="${item.id || item.label}" style="font-size: 10px; padding: 2px 6px;">
+        <button class="ap-btn-unignore ap-btn ap-btn-outline ap-btn-sm" data-id="${escapeHtml(item.id || item.label)}" style="font-size: 10px; padding: 2px 6px;">
           Un-ignore
         </button>
       </div>
@@ -1044,6 +1090,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderAuditLogs();
   });
 
+  // Inline, non-blocking status messaging. Modal alert() dialogs block the whole
+  // browser and read as spammy inside an extension popup.
+  let statusResetTimer = null;
+  function showStatus(message, kind = "info") {
+    const el = document.getElementById('save-status');
+    if (!el) return;
+    const colors = { success: "var(--success)", error: "#b91c1c", info: "var(--text-muted)" };
+    el.textContent = message;
+    el.style.color = colors[kind] || colors.info;
+    clearTimeout(statusResetTimer);
+    statusResetTimer = setTimeout(() => {
+      el.textContent = "All changes saved locally";
+      el.style.color = "var(--text-muted)";
+    }, 4000);
+  }
+
   function escapeHtml(str) {
     if (!str) return '';
     return String(str)
@@ -1054,7 +1116,36 @@ document.addEventListener('DOMContentLoaded', async () => {
       .replace(/'/g, '&#039;');
   }
 
+  // Data controls: explicit, user-initiated sample load and full erase.
+  const btnLoadSample = document.getElementById('btn-load-sample');
+  if (btnLoadSample) {
+    btnLoadSample.addEventListener('click', async () => {
+      if (!window.confirm("Replace your current profile with the sample data?")) return;
+      await StorageService.loadSampleProfile();
+      await refreshProfile();
+      showStatus("Sample profile loaded.", "success");
+    });
+  }
+
+  const btnResetProfile = document.getElementById('btn-reset-profile');
+  if (btnResetProfile) {
+    btnResetProfile.addEventListener('click', async () => {
+      if (!window.confirm("Erase your profile, learned answers and activity log from this browser? This cannot be undone.")) return;
+      await StorageService.resetProfile();
+      await AuditLogger.clearLogs();
+      await refreshProfile();
+      renderAuditLogs();
+      showStatus("All local data erased.", "success");
+    });
+  }
+
   // Initial load
   await refreshProfile();
   await inspectActiveTab();
+
+  // Nudge first-run users to fill in their details before autofill can do anything.
+  if (activeProfile && !activeProfile.onboardingComplete && !activeProfile.personal?.email) {
+    showStatus("Add your details below (or parse a resume) to enable autofill.", "info");
+    switchToTab('tab-profile');
+  }
 });

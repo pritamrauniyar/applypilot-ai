@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 // 1. Setup Global Mocks for Service Worker
-const { StorageService, DEFAULT_PROFILE } = require('../lib/storage.js');
+const { StorageService } = require('../lib/storage.js');
 const { GeminiService } = require('../lib/gemini-service.js');
 const { AuditLogger } = require('../lib/audit-logger.js');
 const { PdfExtractor } = require('../lib/pdf-extractor.js');
@@ -86,22 +86,36 @@ test('ServiceWorker: Context Menu Click Handling', async () => {
   assert.strictEqual(sentMessages.length, 1);
   assert.strictEqual(sentMessages[0].msg.action, 'AUTOFILL');
 
-  // 3. AI Answer click without API key
+  // 3. AI Answer click without an API key surfaces an in-page toast, which needs
+  //    no extra permission and appears where the user is actually looking.
   const prof = await StorageService.getProfile();
   prof.settings.geminiApiKey = '';
   await StorageService.saveProfile(prof);
 
   await contextMenuClickHandler({ menuItemId: 'applypilot-ai-answer' }, { id: 101 });
-  assert.strictEqual(notificationsCreated.length, 1);
-  assert.ok(notificationsCreated[0].message.includes('Please set your free Gemini API key'));
+  assert.strictEqual(sentMessages.length, 2);
+  assert.strictEqual(sentMessages[1].msg.action, 'SHOW_TOAST');
+  assert.ok(sentMessages[1].msg.message.includes('Gemini API key'));
+  assert.strictEqual(notificationsCreated.length, 0, 'no notification needed when the page can show a toast');
+
+  // 3b. When no content script is reachable, fall back to chrome.notifications.
+  const origSend = global.chrome.tabs.sendMessage;
+  global.chrome.tabs.sendMessage = async () => { throw new Error('Receiving end does not exist'); };
+  try {
+    await contextMenuClickHandler({ menuItemId: 'applypilot-ai-answer' }, { id: 101 });
+    assert.strictEqual(notificationsCreated.length, 1);
+    assert.ok(notificationsCreated[0].message.includes('Gemini API key'));
+  } finally {
+    global.chrome.tabs.sendMessage = origSend;
+  }
 
   // 4. AI Answer click with API key
   prof.settings.geminiApiKey = 'test-key';
   await StorageService.saveProfile(prof);
 
   await contextMenuClickHandler({ menuItemId: 'applypilot-ai-answer' }, { id: 101 });
-  assert.strictEqual(sentMessages.length, 2);
-  assert.strictEqual(sentMessages[1].msg.action, 'SUGGEST_UNMATCHED');
+  assert.strictEqual(sentMessages.length, 3);
+  assert.strictEqual(sentMessages[2].msg.action, 'SUGGEST_UNMATCHED');
 
   // 5. Open Sidepanel click
   await contextMenuClickHandler({ menuItemId: 'applypilot-open-sidepanel' }, { id: 101, windowId: 999 });
@@ -110,6 +124,11 @@ test('ServiceWorker: Context Menu Click Handling', async () => {
 });
 
 test('ServiceWorker: Background Intelligence Queue Processing', async () => {
+  // Explicit setup: the compiler only runs when a key is configured.
+  const seed = await StorageService.getProfile();
+  seed.settings.geminiApiKey = 'test-key';
+  await StorageService.saveProfile(seed);
+
   await StorageService.clearPendingSyncQueue();
   await StorageService.queuePendingSync({
     type: 'user_correction',

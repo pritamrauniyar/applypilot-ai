@@ -115,7 +115,7 @@ test('AuditLogger: Memory Fallback FIFO Cap > 1000', async () => {
 });
 
 test('AuditLogger: chrome.storage.local environment paths', async () => {
-  let mockStorage = {};
+  const mockStorage = {};
 
   global.chrome = {
     storage: {
@@ -137,11 +137,14 @@ test('AuditLogger: chrome.storage.local environment paths', async () => {
     // 1. Initial log into chrome storage
     const entry1 = await AuditLogger.log({ actionType: 'autofill', portalType: 'workday' });
     assert.ok(entry1.id);
+    // Writes are batched, so drain the buffer before inspecting storage directly.
+    await AuditLogger.flush();
     assert.strictEqual(mockStorage[AUDIT_STORAGE_KEY].length, 1);
 
     // 2. Log when storage has non-array value
     mockStorage[AUDIT_STORAGE_KEY] = "not-an-array";
     await AuditLogger.log({ actionType: 'autofill', portalType: 'workday' });
+    await AuditLogger.flush();
     assert.strictEqual(Array.isArray(mockStorage[AUDIT_STORAGE_KEY]), true);
 
     // 3. Test filtering in chrome storage path
@@ -166,6 +169,7 @@ test('AuditLogger: chrome.storage.local environment paths', async () => {
       timestamp: new Date().toISOString()
     }));
     await AuditLogger.log({ actionType: 'autofill', valueSet: 'overflow' });
+    await AuditLogger.flush();
     assert.strictEqual(mockStorage[AUDIT_STORAGE_KEY].length, 1000);
 
     // 5. Test clearLogs in chrome storage
@@ -174,4 +178,54 @@ test('AuditLogger: chrome.storage.local environment paths', async () => {
   } finally {
     delete global.chrome;
   }
+});
+
+test('AuditLogger: batches a burst of entries into a single storage write', async () => {
+  const mockStorage = {};
+  let setCalls = 0;
+
+  global.chrome = {
+    storage: {
+      local: {
+        get: (keys, cb) => {
+          const res = {};
+          keys.forEach(k => { if (mockStorage[k] !== undefined) res[k] = mockStorage[k]; });
+          cb(res);
+        },
+        set: (items, cb) => {
+          setCalls++;
+          Object.assign(mockStorage, items);
+          if (cb) cb();
+        }
+      }
+    }
+  };
+
+  try {
+    await AuditLogger.clearLogs();
+    setCalls = 0;
+
+    // A 40-field autofill used to cost 40 full read-modify-write cycles.
+    for (let i = 0; i < 40; i++) {
+      await AuditLogger.log({ actionType: 'autofill', fieldLabel: `Field ${i}` });
+    }
+    await AuditLogger.flush();
+
+    assert.strictEqual(setCalls, 1, 'a burst of 40 entries must cost exactly one write');
+    assert.strictEqual(mockStorage[AUDIT_STORAGE_KEY].length, 40, 'no entry may be dropped by batching');
+    // Newest-first ordering must survive batching.
+    assert.strictEqual(mockStorage[AUDIT_STORAGE_KEY][0].fieldLabel, 'Field 39');
+    assert.strictEqual(mockStorage[AUDIT_STORAGE_KEY][39].fieldLabel, 'Field 0');
+  } finally {
+    delete global.chrome;
+  }
+});
+
+test('AuditLogger: maskValue redacts the stored value', async () => {
+  const masked = await AuditLogger.log({ actionType: 'autofill', valueSet: 'sensitive-answer', maskValue: true });
+  assert.strictEqual(masked.valueSet, '••••••••');
+  assert.ok(!JSON.stringify(masked).includes('sensitive-answer'));
+
+  const unmasked = await AuditLogger.log({ actionType: 'autofill', valueSet: 'plain-answer' });
+  assert.strictEqual(unmasked.valueSet, 'plain-answer');
 });

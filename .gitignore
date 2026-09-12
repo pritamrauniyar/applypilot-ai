@@ -26,3 +26,7 @@ yarn-debug.log*
 yarn-error.log*
 .temp/
 tmp/
+
+# Test & coverage output
+coverage/
+.nyc_output/

@@ -7,20 +7,71 @@ global.window = {};
 const {
   StorageService,
   DEFAULT_PROFILE,
+  SAMPLE_PROFILE,
   calculateStringSimilarity,
   is90PercentMatch,
   isNinetyPercentMatch
 } = require('../lib/storage.js');
 
-test('Storage: DEFAULT_PROFILE integrity and creator branding', () => {
+test('Storage: DEFAULT_PROFILE ships with zero personal data', () => {
   assert.ok(DEFAULT_PROFILE, 'DEFAULT_PROFILE exists');
-  assert.strictEqual(DEFAULT_PROFILE.creator.name, 'Pritam Rauniyar');
-  assert.strictEqual(DEFAULT_PROFILE.creator.portfolio, 'https://pritamrauniyar.com.np/');
-  assert.ok(DEFAULT_PROFILE.personal.firstName);
-  assert.ok(DEFAULT_PROFILE.experience.items.length > 0);
-  assert.ok(DEFAULT_PROFILE.education.items.length > 0);
+
+  // A fresh install must never carry anyone's identity. Every personal/link
+  // field is blank and there is no seeded work or education history.
+  for (const [key, value] of Object.entries(DEFAULT_PROFILE.personal)) {
+    assert.strictEqual(value, '', `personal.${key} must be blank on a fresh install`);
+  }
+  for (const [key, value] of Object.entries(DEFAULT_PROFILE.links)) {
+    assert.strictEqual(value, '', `links.${key} must be blank on a fresh install`);
+  }
+  for (const [key, value] of Object.entries(DEFAULT_PROFILE.presets)) {
+    assert.strictEqual(value, '', `presets.${key} must be blank on a fresh install`);
+  }
+  assert.strictEqual(DEFAULT_PROFILE.experience.items.length, 0);
+  assert.strictEqual(DEFAULT_PROFILE.education.items.length, 0);
+  assert.strictEqual(DEFAULT_PROFILE.customFields.length, 0);
+  assert.strictEqual(DEFAULT_PROFILE.onboardingComplete, false);
+
+  // The knowledge-store scaffolding survives, but carries aliases only.
   assert.ok(DEFAULT_PROFILE.dynamicFields.length > 0);
-  assert.ok(DEFAULT_PROFILE.customFields.length > 0);
+  for (const field of DEFAULT_PROFILE.dynamicFields) {
+    assert.strictEqual(field.value, '', `${field.canonicalKey} must have no pre-filled answer`);
+    assert.ok(Array.isArray(field.aliases) && field.aliases.length > 0);
+  }
+
+  // Guard against the demo fixture leaking back into the shipped default.
+  const serialized = JSON.stringify(DEFAULT_PROFILE).toLowerCase();
+  for (const needle of ['pritam', 'rauniyar', 'uber', 'motilal', '@example.com', 'linkedin.com/in']) {
+    assert.ok(!serialized.includes(needle), `DEFAULT_PROFILE must not contain "${needle}"`);
+  }
+});
+
+test('Storage: SAMPLE_PROFILE is a complete, opt-in demo fixture', () => {
+  assert.ok(SAMPLE_PROFILE.onboardingComplete);
+  assert.ok(SAMPLE_PROFILE.personal.firstName);
+  assert.ok(SAMPLE_PROFILE.experience.items.length > 0);
+  assert.ok(SAMPLE_PROFILE.education.items.length > 0);
+  assert.ok(SAMPLE_PROFILE.customFields.length > 0);
+  // Demo data must use reserved example domains, never a real person's handles.
+  assert.match(SAMPLE_PROFILE.personal.email, /@example\.com$/);
+});
+
+test('Storage: getProfile hands back an isolated copy of the defaults', async () => {
+  const a = await StorageService.getProfile();
+  a.personal.firstName = 'Mutated';
+  a.dynamicFields[0].value = 'Mutated';
+  assert.strictEqual(DEFAULT_PROFILE.personal.firstName, '', 'DEFAULT_PROFILE must not be mutable by reference');
+  assert.strictEqual(DEFAULT_PROFILE.dynamicFields[0].value, '');
+});
+
+test('Storage: concurrent mutations are serialized without lost updates', async () => {
+  await StorageService.resetProfile();
+  await Promise.all(
+    Array.from({ length: 25 }, (_, i) => StorageService.addCustomField({ label: `concurrent-${i}`, value: `v${i}` }))
+  );
+  const profile = await StorageService.getProfile();
+  assert.strictEqual(profile.customFields.length, 25, 'every concurrent write must survive');
+  await StorageService.resetProfile();
 });
 
 test('Storage: calculateStringSimilarity & is90PercentMatch edge cases', () => {
@@ -62,9 +113,9 @@ test('Storage: calculateStringSimilarity & is90PercentMatch edge cases', () => {
 });
 
 test('Storage: Memory Fallback CRUD Operations', async () => {
-  // 1. getProfile & saveProfile
+  // 1. getProfile & saveProfile - a fresh store starts blank
   const profile = await StorageService.getProfile();
-  assert.ok(profile.personal.firstName);
+  assert.strictEqual(profile.personal.firstName, '');
 
   profile.personal.firstName = 'TestName';
   await StorageService.saveProfile(profile);
@@ -238,7 +289,7 @@ test('Storage: Memory Fallback CRUD Operations', async () => {
 });
 
 test('Storage: chrome.storage.local environment paths and migrations', async () => {
-  let mockStorage = {};
+  const mockStorage = {};
 
   // Mock global.chrome
   global.chrome = {
@@ -258,9 +309,10 @@ test('Storage: chrome.storage.local environment paths and migrations', async () 
   };
 
   try {
-    // 1. getProfile when nothing is stored -> returns DEFAULT_PROFILE
+    // 1. getProfile when nothing is stored -> returns a blank DEFAULT_PROFILE
     const p1 = await StorageService.getProfile();
-    assert.strictEqual(p1.creator.name, 'Pritam Rauniyar');
+    assert.strictEqual(p1.personal.firstName, '');
+    assert.strictEqual(p1.onboardingComplete, false);
 
     // 2. saveProfile into chrome.storage.local
     p1.personal.city = 'New York';
@@ -269,14 +321,13 @@ test('Storage: chrome.storage.local environment paths and migrations', async () 
     assert.strictEqual(mockStorage.applypilot_profile.personal.city, 'New York');
 
     // 3. Schema migration tests:
-    // a. Outdated portfolio link ("https://pritam.dev" -> "https://pritamrauniyar.com.np/")
-    // b. Deprecated Gemini model ("gemini-1.5-pro" -> "gemini-3.6-flash")
-    // c. Sequential experience items fallback from single currentCompany / currentTitle
-    // d. Sequential education items fallback from school / degree
+    // a. Retired hardcoded model ids are cleared so discovery takes over
+    // b. Sequential experience items fallback from single currentCompany / currentTitle
+    // c. Sequential education items fallback from school / degree
     mockStorage.applypilot_profile = {
       personal: { firstName: 'Migrated' },
-      links: { portfolio: 'https://pritam.dev' },
-      settings: { model: 'gemini-1.5-pro' },
+      links: { portfolio: 'https://migrated.example.com' },
+      settings: { model: 'gemini-3.6-flash' },
       experience: {
         currentCompany: 'Legacy Corp',
         currentTitle: 'Lead Dev'
@@ -288,22 +339,29 @@ test('Storage: chrome.storage.local environment paths and migrations', async () 
     };
 
     const migrated = await StorageService.getProfile();
-    assert.strictEqual(migrated.links.portfolio, 'https://pritamrauniyar.com.np/');
-    assert.strictEqual(migrated.settings.model, 'gemini-3.6-flash');
+    assert.strictEqual(migrated.links.portfolio, 'https://migrated.example.com', 'user links are preserved verbatim');
+    assert.strictEqual(migrated.settings.model, '', 'retired model id is cleared so discovery runs');
     assert.ok(Array.isArray(migrated.experience.items) && migrated.experience.items.length === 1);
     assert.strictEqual(migrated.experience.items[0].company, 'Legacy Corp');
     assert.strictEqual(migrated.experience.items[0].title, 'Lead Dev');
     assert.ok(Array.isArray(migrated.education.items) && migrated.education.items.length === 1);
     assert.strictEqual(migrated.education.items[0].school, 'State University');
 
-    // Test model with 2.0 and 2.5
+    // Real, currently-available model ids must be left exactly as the user set them.
     mockStorage.applypilot_profile.settings.model = 'gemini-2.0-flash';
     const migrated2 = await StorageService.getProfile();
-    assert.strictEqual(migrated2.settings.model, 'gemini-3.6-flash');
+    assert.strictEqual(migrated2.settings.model, 'gemini-2.0-flash');
 
     mockStorage.applypilot_profile.settings.model = 'gemini-2.5-flash';
     const migrated25 = await StorageService.getProfile();
-    assert.strictEqual(migrated25.settings.model, 'gemini-3.6-flash');
+    assert.strictEqual(migrated25.settings.model, 'gemini-2.5-flash');
+
+    // ...while every retired invented id is cleared.
+    for (const retired of ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.7-flash']) {
+      mockStorage.applypilot_profile.settings.model = retired;
+      const cleared = await StorageService.getProfile();
+      assert.strictEqual(cleared.settings.model, '', `${retired} must be cleared`);
+    }
 
     // Test with pre-existing sequential experience and education items
     mockStorage.applypilot_profile.experience = {

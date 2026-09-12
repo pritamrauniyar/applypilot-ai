@@ -378,23 +378,80 @@
         <div class="ap-input-group">
           <label>Gemini Model</label>
           <select id="setting-model">
-            <option value="gemini-3.6-flash">Gemini 3.6 Flash (Latest & Free)</option>
-            <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-            <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
+            <option value="">Auto-detect best available model</option>
           </select>
+          <p class="ap-text-muted" style="font-size: 10.5px; margin-top: 4px;">
+            Run “Test API Connection” to load the models your key can actually use.
+          </p>
         </div>
         <div class="ap-input-group">
           <label>Essay Answer Tone</label>
           <select id="setting-tone">
-            <option value="Technical & Impactful">Technical & Impactful (Focus on scale, metrics, architecture)</option>
-            <option value="Concise & Direct">Concise & Direct (2-3 sentences)</option>
-            <option value="Story & Challenge Oriented">Story & Challenge Oriented (STAR framework)</option>
+            <option value="Professional &amp; Impactful">Professional &amp; Impactful (metrics and outcomes)</option>
+            <option value="Technical &amp; Impactful">Technical &amp; Impactful (scale, architecture)</option>
+            <option value="Concise &amp; Direct">Concise &amp; Direct (2-3 sentences)</option>
+            <option value="Story &amp; Challenge Oriented">Story &amp; Challenge Oriented (STAR framework)</option>
           </select>
         </div>
         <div class="ap-input-group" style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
           <input type="checkbox" id="setting-floating-badge" checked>
           <label for="setting-floating-badge" style="margin-bottom: 0;">Show floating ApplyPilot widget on career pages</label>
         </div>
+      </div>
+
+      <div class="ap-card">
+        <h4>Privacy</h4>
+        <p class="ap-text-muted" style="margin-bottom: 10px;">
+          ApplyPilot stores everything locally. These controls decide what it is allowed to record,
+          and what may be sent to Google's Gemini API using your own key.
+        </p>
+
+        <div class="ap-input-group" style="display: flex; align-items: flex-start; gap: 8px;">
+          <input type="checkbox" id="setting-capture-typed">
+          <label for="setting-capture-typed" style="margin-bottom: 0;">
+            Learn from what I type on application forms
+            <span class="ap-text-muted" style="display: block; font-size: 10.5px;">
+              Off by default. Sensitive fields (ID numbers, date of birth, bank and card details,
+              passwords) are never captured, even when this is on.
+            </span>
+          </label>
+        </div>
+
+        <div class="ap-input-group" style="display: flex; align-items: flex-start; gap: 8px;">
+          <input type="checkbox" id="setting-log-values">
+          <label for="setting-log-values" style="margin-bottom: 0;">
+            Record field values in the activity log
+            <span class="ap-text-muted" style="display: block; font-size: 10.5px;">
+              Off by default. When off, the log records which field was filled but masks the value.
+            </span>
+          </label>
+        </div>
+
+        <div class="ap-input-group" style="display: flex; align-items: flex-start; gap: 8px;">
+          <input type="checkbox" id="setting-ai-sync" checked>
+          <label for="setting-ai-sync" style="margin-bottom: 0;">
+            Send corrections to Gemini to improve matching
+            <span class="ap-text-muted" style="display: block; font-size: 10.5px;">
+              Sends your saved answers and corrections to Google's API with your own key.
+              Turn off to keep all learning fully on-device.
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div class="ap-card">
+        <h4>Your Data</h4>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button type="button" class="ap-btn ap-btn-secondary ap-btn-sm" id="btn-load-sample">
+            Load sample profile
+          </button>
+          <button type="button" class="ap-btn ap-btn-outline ap-btn-sm" id="btn-reset-profile" style="color: #b91c1c; border-color: #fecaca;">
+            Erase all my data
+          </button>
+        </div>
+        <p class="ap-text-muted" style="font-size: 10.5px; margin-top: 8px;">
+          “Erase all my data” clears your profile, learned answers and activity log from this browser. It cannot be undone.
+        </p>
       </div>
     </div>
 
