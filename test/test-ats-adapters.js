@@ -621,3 +621,147 @@ test('AtsAdapters: Multi-tier Section Index & Parent Scope Resolution (Work Expe
   assert.strictEqual(scope4, 'Work Experience 2');
 });
 
+test('AtsAdapters: isJobApplicationPage LinkedIn exclusion vs Career Portals', () => {
+  // LinkedIn must be strictly excluded on all subdomains and paths
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://www.linkedin.com/'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://www.linkedin.com/jobs/search/?currentJobId=123'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://www.linkedin.com/feed/'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://linkedin.com/jobs/view/456'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://careers.linkedin.com/'), false);
+
+  // Mastercard / Phenom People portal application page must be recognized
+  const mastercardApplyUrl = 'https://careers.mastercard.com/us/en/apply?jobSeqNo=MASRUSR287078EXTERNALENUS&utm_source=linkedin&utm_medium=phenom-feeds&source=LINKEDIN&step=2&stepname=workAndEducation';
+  assert.strictEqual(AtsAdapters.isJobApplicationPage(mastercardApplyUrl), true);
+  assert.strictEqual(AtsAdapters.detectPortalType(mastercardApplyUrl), 'phenom');
+  assert.strictEqual(AtsAdapters.detectPortalType('company.phenompeople.com'), 'phenom');
+
+  // Standard ATS and career portals
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://jobs.lever.co/stripe/apply'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://company.wd1.myworkdayjobs.com/apply'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://boards.greenhouse.io/airbnb/jobs/123'), true);
+
+  // Non-job platforms
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), false);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://reddit.com/r/technology'), false);
+});
+
+test('AtsAdapters: isNonApplicationField filters search inputs, navigation, newsletters and chat widgets', () => {
+  // 1. Search inputs (Phenom / Mastercard style)
+  const searchJobTitleDesc = {
+    combinedLabels: 'Search Job Title',
+    placeholder: 'Search Job Title',
+    name: 'keyword',
+    type: 'text'
+  };
+  assert.strictEqual(AtsAdapters.isNonApplicationField(null, searchJobTitleDesc), true);
+
+  const searchLocationDesc = {
+    combinedLabels: 'Search Location',
+    placeholder: 'Search Location',
+    name: 'location',
+    type: 'text'
+  };
+  assert.strictEqual(AtsAdapters.isNonApplicationField(null, searchLocationDesc), true);
+
+  // 2. Input type="search"
+  const typeSearchDesc = {
+    combinedLabels: 'Find Openings',
+    placeholder: 'Filter positions',
+    type: 'search'
+  };
+  assert.strictEqual(AtsAdapters.isNonApplicationField(null, typeSearchDesc), true);
+
+  // 3. Search query param style names
+  const qDesc = {
+    name: 'q',
+    placeholder: 'Search',
+    type: 'text'
+  };
+  assert.strictEqual(AtsAdapters.isNonApplicationField(null, qDesc), true);
+
+  // 4. Ancestry check: inside header / nav / search bar
+  const headerElem = {
+    tagName: 'INPUT',
+    type: 'text',
+    getAttribute: (attr) => attr === 'placeholder' ? 'Search jobs' : null,
+    closest: (selector) => selector.includes('header') ? { tagName: 'HEADER' } : null
+  };
+  assert.strictEqual(AtsAdapters.isNonApplicationField(headerElem), true);
+
+  // 5. Ancestry check: inside footer newsletter
+  const footerElem = {
+    tagName: 'INPUT',
+    type: 'email',
+    getAttribute: () => null,
+    closest: (selector) => selector.includes('footer') ? { tagName: 'FOOTER' } : null
+  };
+  assert.strictEqual(AtsAdapters.isNonApplicationField(footerElem), true);
+
+  // 6. Legitimate application fields must NOT be flagged as non-application
+  const validJobTitleDesc = {
+    combinedLabels: 'Job Title',
+    placeholder: 'e.g. Software Engineer',
+    name: 'jobTitle',
+    type: 'text'
+  };
+  assert.strictEqual(AtsAdapters.isNonApplicationField(null, validJobTitleDesc), false);
+
+  const validLocationDesc = {
+    combinedLabels: 'Location / City',
+    placeholder: 'e.g. New York, NY',
+    name: 'candidate_city',
+    type: 'text'
+  };
+  assert.strictEqual(AtsAdapters.isNonApplicationField(null, validLocationDesc), false);
+});
+
+test('AtsAdapters: matchElement rejects search fields even if substring matches candidate definitions', () => {
+  const profile = JSON.parse(JSON.stringify(SAMPLE_PROFILE));
+
+  // "Search Job Title" contains "Job Title", but matchElement must reject it cleanly
+  const searchJobTitleDesc = {
+    element: { tagName: 'INPUT', closest: () => null },
+    combinedLabels: 'Search Job Title',
+    placeholder: 'Search Job Title',
+    name: 'keyword',
+    id: 'ph-search-keyword',
+    ariaLabel: 'Search Job Title',
+    dataAutomationId: 'search-job-title',
+    type: 'text'
+  };
+  const resJobTitleSearch = AtsAdapters.matchElement(searchJobTitleDesc, profile);
+  assert.strictEqual(resJobTitleSearch.matched, false);
+  assert.strictEqual(resJobTitleSearch.ignored, true);
+
+  // "Search Location" contains "Location", but matchElement must reject it
+  const searchLocDesc = {
+    element: { tagName: 'INPUT', closest: () => null },
+    combinedLabels: 'Search Location',
+    placeholder: 'Search Location',
+    name: 'location_search',
+    id: 'ph-search-location',
+    ariaLabel: 'Search Location',
+    dataAutomationId: 'search-location',
+    type: 'text'
+  };
+  const resLocSearch = AtsAdapters.matchElement(searchLocDesc, profile);
+  assert.strictEqual(resLocSearch.matched, false);
+  assert.strictEqual(resLocSearch.ignored, true);
+
+  // Valid Job Title matches candidate definition
+  const validTitleDesc = {
+    element: { tagName: 'INPUT', closest: () => null },
+    combinedLabels: 'Current Job Title',
+    placeholder: 'Enter your title',
+    name: 'currentTitle',
+    id: 'job-title-input',
+    ariaLabel: 'Current Job Title',
+    dataAutomationId: 'current-title',
+    type: 'text'
+  };
+  const resValidTitle = AtsAdapters.matchElement(validTitleDesc, profile);
+  assert.strictEqual(resValidTitle.matched, true);
+  assert.strictEqual(resValidTitle.value, profile.experience.items[0].title);
+});
+
+

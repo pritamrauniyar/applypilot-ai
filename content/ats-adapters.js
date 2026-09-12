@@ -743,9 +743,80 @@ var AtsAdapters = {
     };
   },
 
+  // Detect if an element is a search bar, navigation bar, filter, or newsletter field (NOT an application form field)
+  isNonApplicationField(el, descriptor = null) {
+    if (!el && !descriptor) return false;
+
+    const elem = el || descriptor?.element;
+    const type = (descriptor?.type || (elem?.getAttribute && elem.getAttribute('type')) || "").toLowerCase();
+
+    // 1. Explicit search input type
+    if (type === 'search') return true;
+
+    // 2. DOM ancestry check (header, nav, search forms, footers, chatbots)
+    if (elem && elem.closest) {
+      if (elem.closest('header, nav, [role="search"], [role="navigation"], .site-header, .header, .navbar, .top-nav, .navigation, .global-header, .global-nav, .search-bar, .search-box, .search-form, .search-container, .job-search, .global-search, .header-search, .phenom-header, [data-ph-at-id*="search"], [data-ph-id*="search"], form[action*="search"], form[action*="job-search"]')) {
+        return true;
+      }
+      if (elem.closest('footer, [role="contentinfo"], .site-footer, .footer, .newsletter, .subscribe, .talent-community')) {
+        return true;
+      }
+      if (elem.closest('#onetrust-banner-sdk, .cookie-banner, #chatbot, .chat-widget, [class*="intercom"], [class*="drift"], [class*="zendesk"]')) {
+        return true;
+      }
+    }
+
+    // 3. Text and attribute signals
+    const d = descriptor || (this.getElementDescriptor ? this.getElementDescriptor(elem) : null);
+    const combined = `${d?.combinedLabels || ''} ${d?.placeholder || ''} ${d?.name || ''} ${d?.id || ''} ${d?.ariaLabel || ''} ${d?.dataAutomationId || ''}`.toLowerCase();
+
+    // Search patterns for jobs, titles, locations, and keywords
+    if (
+      /\bsearch\s*(?:for\s*)?(?:jobs?|careers?|positions?|openings?|roles?|opportunities|titles?|locations?|city|state|zip|keyword|by\s*keyword|by\s*location)/i.test(combined) ||
+      /\b(?:job|career|position|location|keyword|site|global|header|navbar)\s*search\b/i.test(combined) ||
+      /\bsearch\s+(?:jobs?|careers?|here|all\s+jobs|this\s+site|opportunities)\b/i.test(combined) ||
+      /\b(?:find|filter|browse)\s+(?:jobs?|careers?|positions?|openings?|opportunities)\b/i.test(combined) ||
+      /\b(?:keywords?|search_keywords?|job_search|location_search|search_query|site_search|global_search)\b/i.test(combined)
+    ) {
+      return true;
+    }
+
+    // Check placeholder / aria-label specifically starting with "search " or equal to search terms
+    const placeholder = (d?.placeholder || (elem?.getAttribute && elem.getAttribute('placeholder')) || '').toLowerCase().trim();
+    const ariaLabel = (d?.ariaLabel || (elem?.getAttribute && elem.getAttribute('aria-label')) || '').toLowerCase().trim();
+    if (
+      /^search\s+(?:job|title|location|position|role|company|city|state|keyword)/i.test(placeholder) ||
+      /^search\s+(?:job|title|location|position|role|company|city|state|keyword)/i.test(ariaLabel) ||
+      placeholder === 'search' || ariaLabel === 'search' ||
+      placeholder === 'search jobs' || ariaLabel === 'search jobs' ||
+      placeholder === 'search job title' || ariaLabel === 'search job title' ||
+      placeholder === 'search location' || ariaLabel === 'search location'
+    ) {
+      return true;
+    }
+
+    // Check query param style names when tag is input
+    const name = (d?.name || elem?.name || '').toLowerCase();
+    const id = (d?.id || elem?.id || '').toLowerCase();
+    if (name === 'q' || name === 'query' || name === 'keyword' || name === 'keywords' || id === 'keyword-search' || id === 'location-search') {
+      return true;
+    }
+
+    return false;
+  },
+
   // Match an element against standard fields, custom fields, and learned memory
   matchElement(descriptor, profile, sectionIndex = 0) {
     if (!profile) return { matched: false, descriptor };
+
+    // -1. Check if this is a search bar, navigation bar, filter, or non-application field
+    if (this.isNonApplicationField && this.isNonApplicationField(descriptor.element, descriptor)) {
+      return {
+        matched: false,
+        ignored: true,
+        reason: "Non-application field (search bar, site navigation, or newsletter)"
+      };
+    }
 
     const combined = `${descriptor.combinedLabels} ${descriptor.name} ${descriptor.id} ${descriptor.placeholder} ${descriptor.ariaLabel} ${descriptor.dataAutomationId}`;
 
@@ -887,6 +958,12 @@ var AtsAdapters = {
         }
 
         if (lbl === "name" && (descriptor.combinedLabels.includes("middle") || descriptor.combinedLabels.includes("first") || descriptor.combinedLabels.includes("last") || descriptor.combinedLabels.includes("company") || descriptor.combinedLabels.includes("school") || descriptor.combinedLabels.includes("employer") || descriptor.combinedLabels.includes("organization"))) {
+          continue;
+        }
+
+        // Do not match candidate profile fields (like currentTitle, jobLocation, city, location, currentCompany) on search inputs
+        if ((def.key === "currentTitle" || def.key === "jobLocation" || def.key === "currentCompany" || def.key === "city" || def.key === "location") &&
+            (/\bsearch\b/i.test(descriptor.combinedLabels) || /\bsearch\b/i.test(descriptor.placeholder) || /\bsearch\b/i.test(descriptor.ariaLabel) || /\bsearch\b/i.test(descriptor.name))) {
           continue;
         }
 
@@ -1100,6 +1177,7 @@ var AtsAdapters = {
     if (str.includes("paylocity.com")) return "paylocity";
     if (str.includes("rippling-ats.com") || str.includes("rippling")) return "rippling";
     if (str.includes("ziprecruiter.com")) return "ziprecruiter";
+    if (str.includes("phenompeople.com") || str.includes("phenom-feeds") || str.includes("phenom")) return "phenom";
     return "generic";
   },
 
@@ -1120,6 +1198,12 @@ var AtsAdapters = {
     } catch (e) {
       hostname = (typeof window !== 'undefined' ? window.location?.hostname : "") || "";
       pathname = targetUrl;
+    }
+
+    // 0. LinkedIn exclusion: LinkedIn is a professional network and job search portal.
+    // Never show the floating widget or in-field assistants on LinkedIn pages.
+    if (hostname === "linkedin.com" || hostname.endsWith(".linkedin.com")) {
+      return false;
     }
 
     // 1. Explicit Exclusions: Non-job entertainment, video, media, social, messaging, and search platforms

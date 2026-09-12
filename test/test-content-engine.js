@@ -125,46 +125,60 @@ class MockElement {
     const selectors = sel.split(',').map(s => s.trim());
     return selectors.some(s => {
       if (s.includes(':not(')) {
-        if (s.startsWith('input') && this.tagName !== 'INPUT') return false;
-        if (this.type === 'hidden' || this.type === 'submit' || this.type === 'button' || this.type === 'reset' || this.type === 'file') return false;
+        const parts = s.split(':not(');
+        const base = parts[0].trim();
+        if (base && !this.matches(base)) return false;
+        for (let i = 1; i < parts.length; i++) {
+          const notSel = parts[i].split(')')[0].trim();
+          if (this.matches(notSel)) return false;
+        }
         return true;
       }
+
       const tagMatch = s.match(/^([a-zA-Z0-9]+)/);
       if (tagMatch) {
         if (this.tagName !== tagMatch[1].toUpperCase()) return false;
       }
 
-      if (s.includes('[type="checkbox"]') && this.type !== 'checkbox') return false;
-      if (s.includes('[type="radio"]') && this.type !== 'radio') return false;
-
-      if (s.includes('[id*="')) {
-        const target = s.split('[id*="')[1].split('"')[0].toLowerCase();
-        if (!this.id || !this.id.toLowerCase().includes(target)) return false;
-      }
-      if (s.includes('[name*="')) {
-        const target = s.split('[name*="')[1].split('"')[0].toLowerCase();
-        const nameAttr = this.getAttribute('name');
-        if (!nameAttr || !nameAttr.toLowerCase().includes(target)) return false;
-      }
-      if (s.includes('[data-automation-id*="')) {
-        const target = s.split('[data-automation-id*="')[1].split('"')[0].toLowerCase();
-        const autoAttr = this.getAttribute('data-automation-id');
-        if (!autoAttr || !autoAttr.toLowerCase().includes(target)) return false;
-      }
-      if (s.includes('[data-testid*="')) {
-        const target = s.split('[data-testid*="')[1].split('"')[0].toLowerCase();
-        const testIdAttr = this.getAttribute('data-testid');
-        if (!testIdAttr || !testIdAttr.toLowerCase().includes(target)) return false;
+      const idMatch = s.match(/#([a-zA-Z0-9_-]+)/);
+      if (idMatch) {
+        if (this.id !== idMatch[1]) return false;
       }
 
-      if (s.startsWith('#') && this.id !== s.slice(1)) return false;
-      if (s.startsWith('.')) {
-        const className = s.split(/[\s,>+~[]/)[0].slice(1);
-        if (!this.classList.contains(className)) return false;
+      const classMatches = s.match(/\.([a-zA-Z0-9_-]+)/g);
+      if (classMatches) {
+        for (const c of classMatches) {
+          if (!this.classList.contains(c.slice(1))) return false;
+        }
       }
-      if (s.includes('label[for="')) {
-        const target = s.split('label[for="')[1].split('"')[0];
-        if (this.tagName !== 'LABEL' || this.getAttribute('for') !== target) return false;
+
+      const attrRegex = /\[([a-zA-Z0-9_-]+)(?:([*^$]?=)(?:"([^"]*)"|'([^']*)'|([^\]\s]+)))?\s*[iIsS]?\]/g;
+      let attrMatch;
+      let hasAttr = false;
+      while ((attrMatch = attrRegex.exec(s)) !== null) {
+        hasAttr = true;
+        const attrKey = attrMatch[1];
+        const op = attrMatch[2];
+        let val = attrMatch[3] !== undefined ? attrMatch[3] : (attrMatch[4] !== undefined ? attrMatch[4] : attrMatch[5]);
+        if (typeof val === 'string') val = val.replace(/^["']|["']$/g, '');
+
+        const actualVal = this.getAttribute ? (this.getAttribute(attrKey) || (attrKey === 'class' ? this.className : (attrKey === 'type' ? this.type : null))) : null;
+
+        if (!op) {
+          if (this.hasAttribute && !this.hasAttribute(attrKey) && actualVal == null) return false;
+        } else if (op === '=') {
+          if (actualVal !== val) return false;
+        } else if (op === '*=') {
+          if (!actualVal || !actualVal.toLowerCase().includes(val.toLowerCase())) return false;
+        } else if (op === '^=') {
+          if (!actualVal || !actualVal.toLowerCase().startsWith(val.toLowerCase())) return false;
+        } else if (op === '$=') {
+          if (!actualVal || !actualVal.toLowerCase().endsWith(val.toLowerCase())) return false;
+        }
+      }
+
+      if (!tagMatch && !idMatch && !classMatches && !hasAttr) {
+        return false;
       }
 
       return true;
@@ -1156,3 +1170,58 @@ test('Audit logging masks values unless the user opts in', () => {
 
   assert.ok(original !== undefined || original === null);
 });
+
+test('ContentEngine: scanFormFields skips search and non-application fields', async () => {
+  document.body.children = [];
+
+  // Search input in header/page (like Phenom / Mastercard search inputs)
+  const searchJobTitle = document.createElement('input');
+  searchJobTitle.id = 'search_keyword';
+  searchJobTitle.setAttribute('name', 'keyword');
+  searchJobTitle.setAttribute('placeholder', 'Search Job Title');
+  searchJobTitle.setAttribute('aria-label', 'Search Job Title');
+
+  const searchLocation = document.createElement('input');
+  searchLocation.id = 'search_location';
+  searchLocation.setAttribute('name', 'location');
+  searchLocation.setAttribute('placeholder', 'Search Location');
+  searchLocation.setAttribute('aria-label', 'Search Location');
+
+  // Genuine application form fields
+  const jobTitleInput = document.createElement('input');
+  jobTitleInput.id = 'workExperience_0_jobTitle';
+  jobTitleInput.setAttribute('name', 'jobTitle');
+  jobTitleInput.setAttribute('placeholder', 'Job Title');
+
+  const companyInput = document.createElement('input');
+  companyInput.id = 'workExperience_0_company';
+  companyInput.setAttribute('name', 'company');
+  companyInput.setAttribute('placeholder', 'Company');
+
+  document.body.appendChild(searchJobTitle);
+  document.body.appendChild(searchLocation);
+  document.body.appendChild(jobTitleInput);
+  document.body.appendChild(companyInput);
+
+  messageResponses['GET_PROFILE'] = {
+    success: true,
+    profile: JSON.parse(JSON.stringify(SAMPLE_PROFILE))
+  };
+  await ContentEngine.loadProfile();
+
+  const scan = ContentEngine.scanFormFields();
+  // Search inputs should be completely omitted from matched and unmatched
+  const matchedIds = scan.matched.map(m => m.element.id);
+  assert.ok(!matchedIds.includes('search_keyword'), 'Search Job Title must not be matched');
+  assert.ok(!matchedIds.includes('search_location'), 'Search Location must not be matched');
+  assert.ok(matchedIds.includes('workExperience_0_jobTitle'), 'Real Job Title must be matched');
+  assert.ok(matchedIds.includes('workExperience_0_company'), 'Real Company must be matched');
+
+  // Autofill form
+  await ContentEngine.autofillForm();
+  assert.strictEqual(searchJobTitle.value, '', 'Search input must remain empty');
+  assert.strictEqual(searchLocation.value, '', 'Search input must remain empty');
+  assert.strictEqual(jobTitleInput.value, SAMPLE_PROFILE.experience.items[0].title);
+  assert.strictEqual(companyInput.value, SAMPLE_PROFILE.experience.items[0].company);
+});
+

@@ -395,6 +395,8 @@
     for (const el of candidates) {
       if (el.closest && el.closest('#applypilot-floating-hub, #applypilot-review-card, .ap-toast')) continue;
       const descriptor = adapters.getElementDescriptor(el);
+      // Skip search boxes, header/footer navigation, newsletters, and other non-application inputs
+      if (adapters.isNonApplicationField && adapters.isNonApplicationField(el, descriptor)) continue;
       // Never surface a sensitive field as fillable or as an AI candidate.
       if (isSensitiveField(el, descriptor)) continue;
       allDescriptors.push(descriptor);
@@ -554,6 +556,7 @@
     const textareas = document.querySelectorAll('textarea');
     for (const ta of textareas) {
       if (ta.dataset.apAiAttached) continue;
+      if (adapters && adapters.isNonApplicationField && adapters.isNonApplicationField(ta)) continue;
       // Don't offer to draft an answer into a field we must not read.
       if (isSensitiveField(ta)) continue;
 
@@ -1008,6 +1011,8 @@
       const el = e.target;
       if (!el || !el.matches || !el.matches('input, select, textarea')) return;
       if (el.closest && el.closest('#applypilot-floating-hub, #applypilot-review-card, .ap-toast')) return;
+      const adapters = getAtsAdapters();
+      if (adapters && adapters.isNonApplicationField && adapters.isNonApplicationField(el)) return;
       // Sensitive fields are never read, stored or transmitted.
       if (isSensitiveField(el)) return;
 
@@ -1031,6 +1036,7 @@
         if (!isCaptureEnabled(cachedProfile) && !window.__applypilot_testing) return;
 
         const descriptor = adapters.getElementDescriptor(el);
+        if (adapters.isNonApplicationField && adapters.isNonApplicationField(el, descriptor)) return;
         if (isSensitiveField(el, descriptor)) return;
         const label = descriptor.combinedLabels || descriptor.placeholder || descriptor.name || descriptor.dataAutomationId;
         if (!label || label.length < 2) return;
@@ -1318,6 +1324,7 @@
         if (!isJobPage && !window.__applypilot_testing) return;
       }
       const el = e.target;
+      if (adapters && adapters.isNonApplicationField && adapters.isNonApplicationField(el)) return;
       if (el && el.matches && el.matches('input, select, textarea') && el.value && el.value.trim().length > 0) {
         el.dataset.apHadValue = "true";
         if (!el.dataset.apAutofillVal) {
@@ -1339,7 +1346,9 @@
       if (!isCaptureEnabled(cachedProfile) && !window.__applypilot_testing) return;
       const allInputs = document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), select, textarea');
       for (const inp of allInputs) {
+        if (adapters.isNonApplicationField && adapters.isNonApplicationField(inp)) continue;
         const desc = adapters.getElementDescriptor(inp);
+        if (adapters.isNonApplicationField && adapters.isNonApplicationField(inp, desc)) continue;
         if (isSensitiveField(inp, desc)) continue;
         if (!desc.isRequired) {
           const hasVal = (inp.value || "").trim().length > 0;
@@ -1407,11 +1416,13 @@
 
     for (const el of candidates) {
       if (el.closest && el.closest('#applypilot-floating-hub, #applypilot-review-card, .ap-toast')) continue;
+      if (adapters.isNonApplicationField && adapters.isNonApplicationField(el)) continue;
       const rawVal = el.type === 'checkbox' ? (el.checked ? "Yes" : "No") : el.value;
       const val = typeof rawVal === 'string' ? rawVal.trim() : rawVal;
       if (!val || val.length === 0) continue;
 
       const descriptor = adapters.getElementDescriptor(el);
+      if (adapters.isNonApplicationField && adapters.isNonApplicationField(el, descriptor)) continue;
       if (isSensitiveField(el, descriptor)) continue;
       const label = descriptor.combinedLabels || descriptor.placeholder || descriptor.name || descriptor.dataAutomationId;
       if (!label || label.length < 2) continue;
