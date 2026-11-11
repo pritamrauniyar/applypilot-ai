@@ -6,6 +6,7 @@
   --primary-light: #eef2ff;
   --gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
   --bg: #ffffff;
+  --bg-hover: #f1f5f9;
   --surface: #f8fafc;
   --card-bg: #ffffff;
   --text: #0f172a;
@@ -158,69 +159,10 @@ body {
   border-bottom-color: var(--primary);
 }
 
-/* Alert Banner for Instant API Key Entry */
-.ap-alert-banner {
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-radius: var(--radius-md);
-  padding: 12px;
-  margin-bottom: 12px;
-}
-
-.ap-alert-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 4px;
-  font-size: 12.5px;
-  color: #1e40af;
-}
-
-.ap-alert-desc {
-  font-size: 11.5px;
-  color: #3b82f6;
-  margin-bottom: 8px;
-  line-height: 1.4;
-}
-
-.ap-alert-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.ap-inline-input {
-  flex: 1;
-  padding: 6px 10px;
-  border: 1px solid #93c5fd;
-  border-radius: var(--radius-sm);
-  font-size: 12px;
-  background: #ffffff;
-}
-
-.ap-inline-input:focus {
-  outline: none;
-  border-color: var(--primary);
-}
-
 .ap-btn-sm {
   padding: 6px 12px;
   font-size: 11.5px;
   white-space: nowrap;
-}
-
-.ap-link-pill {
-  background: #dbeafe;
-  color: #1d4ed8;
-  padding: 2px 8px;
-  border-radius: 99px;
-  font-size: 11px;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.ap-link-pill:hover {
-  background: #bfdbfe;
 }
 
 /* Content Area */
@@ -245,9 +187,42 @@ body {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
 }
 
-.ap-hero-card {
+.ap-card-highlight {
   background: linear-gradient(180deg, #ffffff 0%, var(--surface) 100%);
   border-color: #cbd5e1;
+}
+
+.ap-card-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.ap-card-title-row h4 {
+  margin-bottom: 0;
+}
+
+.ap-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 10.5px;
+  font-weight: 700;
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.ap-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  border-radius: 99px;
+  font-size: 10.5px;
+  font-weight: 700;
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 .ap-card h3 {
@@ -309,12 +284,6 @@ body {
 }
 
 /* Buttons */
-.ap-btn-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .ap-btn {
   display: inline-flex;
   align-items: center;
@@ -327,11 +296,6 @@ body {
   cursor: pointer;
   transition: all 0.15s;
   border: none;
-}
-
-.ap-btn-large {
-  padding: 12px 16px;
-  font-size: 13.5px;
 }
 
 .ap-btn-primary {
@@ -356,7 +320,20 @@ body {
   border-color: #cbd5e1;
 }
 
+.ap-btn-outline {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.ap-btn-outline:hover {
+  background: var(--surface);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
 /* Form Controls */
+.ap-grid-2,
 .ap-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -402,6 +379,7 @@ body {
 }
 
 /* Field lists */
+.ap-field-list,
 .ap-fields-list {
   display: flex;
   flex-direction: column;
@@ -461,14 +439,6 @@ body {
 .ap-dropzone:hover {
   border-color: var(--primary);
   background: var(--primary-light);
-}
-
-/* Summary list */
-.ap-summary-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 12px;
 }
 
 /* Footer */

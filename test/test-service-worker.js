@@ -1,14 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-// 1. Setup Global Mocks for Service Worker
+// 1. Setup Global Mocks for Service Worker (100% Offline Engine)
 const { StorageService } = require('../lib/storage.js');
-const { GeminiService } = require('../lib/gemini-service.js');
+const { DeterministicResumeParser } = require('../lib/deterministic-resume-parser.js');
 const { AuditLogger } = require('../lib/audit-logger.js');
 const { PdfExtractor } = require('../lib/pdf-extractor.js');
 
 global.StorageService = StorageService;
-global.GeminiService = GeminiService;
+global.DeterministicResumeParser = DeterministicResumeParser;
 global.AuditLogger = AuditLogger;
 global.PdfExtractor = PdfExtractor;
 
@@ -60,7 +60,12 @@ global.chrome = {
 };
 
 // Require Service Worker
-const { scheduleBackgroundRefinement, processBackgroundSyncQueue } = require('../background/service-worker.js');
+const {
+  scheduleBackgroundRefinement,
+  processBackgroundSyncQueue,
+  buildOfflineDraftAnswer,
+  buildOfflineFieldSuggestion
+} = require('../background/service-worker.js');
 
 test('ServiceWorker: Installation and Context Menu Registration', async () => {
   assert.ok(typeof onInstalledHandler === 'function');
@@ -71,7 +76,7 @@ test('ServiceWorker: Installation and Context Menu Registration', async () => {
   assert.ok(createdContextMenus.some(m => m.id === 'applypilot-open-sidepanel'));
 });
 
-test('ServiceWorker: Context Menu Click Handling', async () => {
+test('ServiceWorker: Context Menu Click Handling Works Without API Key', async () => {
   assert.ok(typeof contextMenuClickHandler === 'function');
   sentMessages = [];
   notificationsCreated = [];
@@ -86,115 +91,96 @@ test('ServiceWorker: Context Menu Click Handling', async () => {
   assert.strictEqual(sentMessages.length, 1);
   assert.strictEqual(sentMessages[0].msg.action, 'AUTOFILL');
 
-  // 3. AI Answer click without an API key surfaces an in-page toast, which needs
-  //    no extra permission and appears where the user is actually looking.
+  // 3. Smart Draft / Review Unmatched works directly with NO API key
   const prof = await StorageService.getProfile();
   prof.settings.geminiApiKey = '';
   await StorageService.saveProfile(prof);
 
   await contextMenuClickHandler({ menuItemId: 'applypilot-ai-answer' }, { id: 101 });
   assert.strictEqual(sentMessages.length, 2);
-  assert.strictEqual(sentMessages[1].msg.action, 'SHOW_TOAST');
-  assert.ok(sentMessages[1].msg.message.includes('Gemini API key'));
-  assert.strictEqual(notificationsCreated.length, 0, 'no notification needed when the page can show a toast');
+  assert.strictEqual(sentMessages[1].msg.action, 'SUGGEST_UNMATCHED');
+  assert.strictEqual(notificationsCreated.length, 0);
 
-  // 3b. When no content script is reachable, fall back to chrome.notifications.
+  // 3b. When tab has no content script attached, surface fallback toast/notification cleanly
   const origSend = global.chrome.tabs.sendMessage;
   global.chrome.tabs.sendMessage = async () => { throw new Error('Receiving end does not exist'); };
   try {
     await contextMenuClickHandler({ menuItemId: 'applypilot-ai-answer' }, { id: 101 });
     assert.strictEqual(notificationsCreated.length, 1);
-    assert.ok(notificationsCreated[0].message.includes('Gemini API key'));
+    assert.strictEqual(notificationsCreated[0].title, 'ApplyPilot');
   } finally {
     global.chrome.tabs.sendMessage = origSend;
   }
 
-  // 4. AI Answer click with API key
-  prof.settings.geminiApiKey = 'test-key';
-  await StorageService.saveProfile(prof);
-
-  await contextMenuClickHandler({ menuItemId: 'applypilot-ai-answer' }, { id: 101 });
-  assert.strictEqual(sentMessages.length, 3);
-  assert.strictEqual(sentMessages[2].msg.action, 'SUGGEST_UNMATCHED');
-
-  // 5. Open Sidepanel click
+  // 4. Open Sidepanel click
   await contextMenuClickHandler({ menuItemId: 'applypilot-open-sidepanel' }, { id: 101, windowId: 999 });
   assert.strictEqual(openedSidePanels.length, 1);
   assert.strictEqual(openedSidePanels[0].windowId, 999);
 });
 
-test('ServiceWorker: Background Intelligence Queue Processing', async () => {
-  // Explicit setup: the compiler only runs when a key is configured.
-  const seed = await StorageService.getProfile();
-  seed.settings.geminiApiKey = 'test-key';
-  await StorageService.saveProfile(seed);
-
+test('ServiceWorker: Offline Background Memory Consolidation Queue Processing', async () => {
   await StorageService.clearPendingSyncQueue();
   await StorageService.queuePendingSync({
     type: 'user_correction',
-    field: 'Current Company',
-    value: 'Uber'
+    fieldLabel: 'Current Job Title',
+    correctedValue: 'Senior Staff Engineer'
+  });
+  await StorageService.queuePendingSync({
+    type: 'user_cleared_field',
+    fieldLabel: 'Middle Name',
+    fieldNameOrId: 'middle_name'
   });
 
-  // Mock GeminiService.refineKnowledgeBase
-  const origRefine = GeminiService.refineKnowledgeBase;
-  GeminiService.refineKnowledgeBase = async () => ({
-    updatedFields: [
-      {
-        id: 'df-exp-title',
-        canonicalKey: 'experience.currentTitle',
-        label: 'Current Job Title',
-        value: 'Senior Staff Engineer'
-      },
-      {
-        canonicalKey: 'custom.newBrandField',
-        label: 'Newly Discovered Field',
-        value: 'Brand Value'
-      }
-    ],
-    recommendedIgnored: ['unwanted_optional']
-  });
+  const summary = await processBackgroundSyncQueue();
+  assert.strictEqual(summary.processedCount, 2);
+  assert.strictEqual(summary.learnedCount, 1);
+  assert.strictEqual(summary.ignoredCount, 1);
 
-  try {
-    await processBackgroundSyncQueue();
-    const currentQueue = await StorageService.getPendingSyncQueue();
-    assert.strictEqual(currentQueue.length, 0, 'Queue should be cleared after synthesis');
+  const currentQueue = await StorageService.getPendingSyncQueue();
+  assert.strictEqual(currentQueue.length, 0, 'Queue should be cleared after offline consolidation');
 
-    const updatedProfile = await StorageService.getProfile();
-    const updatedField = updatedProfile.dynamicFields.find(f => f.id === 'df-exp-title');
-    assert.strictEqual(updatedField.value, 'Senior Staff Engineer');
-    assert.ok(updatedProfile.ignoredOptionalFields.some(f => f.label === 'unwanted_optional'));
-    assert.ok(updatedProfile.dynamicFields.some(f => f.label === 'Newly Discovered Field'));
+  const updatedProfile = await StorageService.getProfile();
+  assert.ok(updatedProfile.learnedMemory.some(m => m.fieldLabel === 'Current Job Title' && m.answer === 'Senior Staff Engineer'));
 
-    // Test empty queue return
-    await processBackgroundSyncQueue();
+  // Empty queue returns zeros cleanly
+  const emptySummary = await processBackgroundSyncQueue();
+  assert.strictEqual(emptySummary.processedCount, 0);
 
-    // Test without API key
-    const savedKey = updatedProfile.settings.geminiApiKey;
-    updatedProfile.settings.geminiApiKey = '';
-    await StorageService.saveProfile(updatedProfile);
-    await StorageService.queuePendingSync({ type: 'test_item' });
-    await processBackgroundSyncQueue();
-
-    // Restore API key
-    updatedProfile.settings.geminiApiKey = savedKey;
-    await StorageService.saveProfile(updatedProfile);
-
-    // Test error in processBackgroundSyncQueue
-    GeminiService.refineKnowledgeBase = async () => { throw new Error('Refine failure'); };
-    await StorageService.queuePendingSync({ type: 'error_item' });
-    await processBackgroundSyncQueue();
-
-    // Test timer scheduler
-    GeminiService.refineKnowledgeBase = async () => ({ updatedFields: [], recommendedIgnored: [] });
-    scheduleBackgroundRefinement(10);
-    await new Promise(r => setTimeout(r, 60));
-  } finally {
-    GeminiService.refineKnowledgeBase = origRefine;
-  }
+  // Scheduler handles environments without alarms or with alarms gracefully
+  scheduleBackgroundRefinement();
 });
 
-test('ServiceWorker: onMessage Message Routing & Actions', async () => {
+test('ServiceWorker: Offline Answer Drafting & Unmatched Field Suggestion Heuristics', async () => {
+  const sampleProfile = {
+    personal: { fullName: 'Jane Doe', city: 'Austin', state: 'TX', country: 'United States' },
+    links: { linkedin: 'https://linkedin.com/in/janedoe', github: 'https://github.com/janedoe' },
+    experience: {
+      currentTitle: 'Staff Software Engineer',
+      currentCompany: 'Acme Corp',
+      yearsOfExperience: '6',
+      skills: 'TypeScript, Node.js, Distributed Systems',
+      items: [{ title: 'Staff Software Engineer', company: 'Acme Corp', description: 'Scaled payment APIs to 50k RPS.' }]
+    },
+    education: { degree: 'B.S.', fieldOfStudy: 'Computer Science', school: 'UT Austin' },
+    presets: { workAuthorization: 'Yes', requireSponsorship: 'No', noticePeriod: '2 weeks', salaryExpectations: '$180,000' }
+  };
+
+  const whyAns = buildOfflineDraftAnswer({ question: 'Why do you want to work at Stripe?', companyName: 'Stripe' }, sampleProfile);
+  assert.ok(whyAns.includes('Stripe'));
+  assert.ok(whyAns.includes('Staff Software Engineer'));
+
+  const bioAns = buildOfflineDraftAnswer({ question: 'Tell me about yourself' }, sampleProfile);
+  assert.ok(bioAns.includes('Jane Doe'));
+  assert.ok(bioAns.includes('UT Austin'));
+
+  assert.strictEqual(buildOfflineFieldSuggestion({ fieldLabel: 'Are you legally authorized to work?' }, sampleProfile), 'Yes');
+  assert.strictEqual(buildOfflineFieldSuggestion({ fieldLabel: 'Will you require visa sponsorship?' }, sampleProfile), 'No');
+  assert.strictEqual(buildOfflineFieldSuggestion({ fieldLabel: 'Notice period' }, sampleProfile), '2 weeks');
+  assert.strictEqual(buildOfflineFieldSuggestion({ fieldLabel: 'LinkedIn Profile' }, sampleProfile), 'https://linkedin.com/in/janedoe');
+  assert.strictEqual(buildOfflineFieldSuggestion({ fieldLabel: 'Favorite food', options: ['Pizza', 'Sushi'] }, sampleProfile), '');
+});
+
+test('ServiceWorker: onMessage Offline Message Routing & Actions', async () => {
   assert.ok(typeof onMessageHandler === 'function');
 
   const sendMessage = (request, sender = {}) => {
@@ -222,6 +208,7 @@ test('ServiceWorker: onMessage Message Routing & Actions', async () => {
   // 3. TRIGGER_BACKGROUND_SYNC_NOW
   const triggerRes = await sendMessage({ action: 'TRIGGER_BACKGROUND_SYNC_NOW' });
   assert.strictEqual(triggerRes.success, true);
+  assert.ok(triggerRes.processedCount >= 1);
 
   // 4. Dynamic Fields CRUD
   const addDfRes = await sendMessage({
@@ -249,21 +236,7 @@ test('ServiceWorker: onMessage Message Routing & Actions', async () => {
   });
   assert.strictEqual(deleteDfRes.success, true);
 
-  // 5. TEST_API_KEY & DISCOVER_MODELS
-  const origTest = GeminiService.testApiKey;
-  GeminiService.testApiKey = async () => ({ success: true, models: ['gemini-3.6-flash'] });
-
-  try {
-    const testKeyRes = await sendMessage({ action: 'TEST_API_KEY', apiKey: 'valid-key' });
-    assert.strictEqual(testKeyRes.success, true);
-
-    const discoverRes = await sendMessage({ action: 'DISCOVER_MODELS', apiKey: 'valid-key' });
-    assert.strictEqual(discoverRes.success, true);
-  } finally {
-    GeminiService.testApiKey = origTest;
-  }
-
-  // 6. RECORD_FIELD_INTERACTION & SAVE_LEARNED_FIELD
+  // 5. RECORD_FIELD_INTERACTION & SAVE_LEARNED_FIELD
   const recordRes = await sendMessage({
     action: 'RECORD_FIELD_INTERACTION',
     fieldLabel: 'Years of Experience',
@@ -279,7 +252,7 @@ test('ServiceWorker: onMessage Message Routing & Actions', async () => {
   });
   assert.strictEqual(saveLearnedRes.success, true);
 
-  // 7. Custom Fields CRUD
+  // 6. Custom Fields CRUD
   const addCfRes = await sendMessage({
     action: 'ADD_CUSTOM_FIELD',
     field: { label: 'Notice Period', value: 'Immediate' }
@@ -292,7 +265,7 @@ test('ServiceWorker: onMessage Message Routing & Actions', async () => {
   });
   assert.strictEqual(deleteCfRes.success, true);
 
-  // 8. Audit Logging Messages
+  // 7. Audit Logging Messages
   const logRes = await sendMessage({
     action: 'LOG_AUDIT_ENTRY',
     logData: { actionType: 'test_action', status: 'success' }
@@ -306,7 +279,7 @@ test('ServiceWorker: onMessage Message Routing & Actions', async () => {
   const clearLogsRes = await sendMessage({ action: 'CLEAR_AUDIT_LOGS' });
   assert.strictEqual(clearLogsRes.success, true);
 
-  // 9. Ignored Fields CRUD
+  // 8. Ignored Fields CRUD
   const addIgnRes = await sendMessage({
     action: 'ADD_IGNORED_FIELD',
     fieldInfo: { label: 'veteran status' }
@@ -322,90 +295,59 @@ test('ServiceWorker: onMessage Message Routing & Actions', async () => {
   const clearIgnRes = await sendMessage({ action: 'CLEAR_IGNORED_FIELDS' });
   assert.strictEqual(clearIgnRes.success, true);
 
-  // 10. OPEN_SIDEPANEL
+  // 9. OPEN_SIDEPANEL
   const openSpRes = await sendMessage({ action: 'OPEN_SIDEPANEL' }, { tab: { windowId: 555 } });
   assert.strictEqual(openSpRes.success, true);
 
-  // 11. GENERATE_AI_ANSWER (with and without key)
+  // 10. GENERATE_AI_ANSWER & SUGGEST_FIELD_ANSWER work 100% offline with NO API key
   const prof = await StorageService.getProfile();
   prof.settings.geminiApiKey = '';
+  prof.experience = { ...prof.experience, currentTitle: 'Backend Engineer', currentCompany: 'Stripe', yearsOfExperience: '5', skills: 'Go, Node.js' };
+  prof.presets = { ...prof.presets, workAuthorization: 'Yes' };
   await StorageService.saveProfile(prof);
 
-  const genNoKey = await sendMessage({ action: 'GENERATE_AI_ANSWER', question: 'Tell me about yourself' });
-  assert.ok(genNoKey.error.includes('Missing Gemini API Key'));
+  const genRes = await sendMessage({ action: 'GENERATE_AI_ANSWER', question: 'Tell me about yourself' });
+  assert.strictEqual(genRes.success, true);
+  assert.strictEqual(genRes.offline, true);
+  assert.ok(genRes.answer.length > 10);
 
-  prof.settings.geminiApiKey = 'valid-key';
-  await StorageService.saveProfile(prof);
+  const suggestRes = await sendMessage({ action: 'SUGGEST_FIELD_ANSWER', fieldLabel: 'Work Authorization' });
+  assert.strictEqual(suggestRes.success, true);
+  assert.strictEqual(suggestRes.offline, true);
+  assert.strictEqual(suggestRes.suggestion, 'Yes');
 
-  const origAnswer = GeminiService.answerOpenEndedQuestion;
-  GeminiService.answerOpenEndedQuestion = async () => 'Answered by AI';
-  try {
-    const genRes = await sendMessage({ action: 'GENERATE_AI_ANSWER', question: 'Tell me about yourself' });
-    assert.strictEqual(genRes.success, true);
-    assert.strictEqual(genRes.answer, 'Answered by AI');
-  } finally {
-    GeminiService.answerOpenEndedQuestion = origAnswer;
-  }
+  // 11. PARSE_RESUME_TEXT (100% offline deterministic)
+  const emptyTextRes = await sendMessage({ action: 'PARSE_RESUME_TEXT', resumeText: '   ' });
+  assert.ok(emptyTextRes.error);
 
-  // 12. SUGGEST_FIELD_ANSWER (with and without key)
-  prof.settings.geminiApiKey = '';
-  await StorageService.saveProfile(prof);
+  const parseTextRes = await sendMessage({
+    action: 'PARSE_RESUME_TEXT',
+    resumeText: 'Pritam Rauniyar\npritam@example.com\nEXPERIENCE\nSoftware Engineer | Tech Corp | 2022 - Present\nBuilt services.'
+  });
+  assert.strictEqual(parseTextRes.success, true);
+  assert.strictEqual(parseTextRes.offline, true);
+  assert.strictEqual(parseTextRes.parsed.personal.email, 'pritam@example.com');
 
-  const suggestNoKey = await sendMessage({ action: 'SUGGEST_FIELD_ANSWER' });
-  assert.ok(suggestNoKey.error.includes('Missing Gemini API Key'));
+  // 12. PARSE_RESUME_FILE (rejects images offline, parses text-based files offline)
+  const imageFileRes = await sendMessage({
+    action: 'PARSE_RESUME_FILE',
+    base64Data: 'YWJj',
+    mimeType: 'image/png'
+  });
+  assert.ok(imageFileRes.error.includes('cannot be parsed offline'));
 
-  prof.settings.geminiApiKey = 'test-key';
-  await StorageService.saveProfile(prof);
+  const textBase64 = Buffer.from('Pritam Rauniyar\npritam@example.com\nEXPERIENCE\nBackend Engineer | Stripe | 2021 - Present\nBuilt payment APIs.', 'utf8').toString('base64');
+  const textFileRes = await sendMessage({
+    action: 'PARSE_RESUME_FILE',
+    base64Data: textBase64,
+    mimeType: 'text/plain',
+    fileName: 'resume.txt'
+  });
+  assert.strictEqual(textFileRes.success, true);
+  assert.strictEqual(textFileRes.offline, true);
+  assert.strictEqual(textFileRes.parsed.personal.email, 'pritam@example.com');
 
-  const origSuggest = GeminiService.suggestFieldAnswer;
-  GeminiService.suggestFieldAnswer = async () => 'Suggested Response';
-  try {
-    const suggestRes = await sendMessage({ action: 'SUGGEST_FIELD_ANSWER', fieldLabel: 'Work Auth' });
-    assert.strictEqual(suggestRes.success, true);
-    assert.strictEqual(suggestRes.suggestion, 'Suggested Response');
-  } finally {
-    GeminiService.suggestFieldAnswer = origSuggest;
-  }
-
-  // 13. PARSE_RESUME_TEXT (with and without key)
-  prof.settings.geminiApiKey = '';
-  await StorageService.saveProfile(prof);
-  const parseTextNoKey = await sendMessage({ action: 'PARSE_RESUME_TEXT' });
-  assert.ok(parseTextNoKey.error.includes('Missing Gemini API Key'));
-
-  prof.settings.geminiApiKey = 'test-key';
-  await StorageService.saveProfile(prof);
-
-  const origParseText = GeminiService.parseResumeText;
-  GeminiService.parseResumeText = async () => ({ personal: { fullName: 'Pritam Rauniyar' } });
-  try {
-    const parseTextRes = await sendMessage({ action: 'PARSE_RESUME_TEXT', resumeText: 'Pritam resume' });
-    assert.strictEqual(parseTextRes.success, true);
-    assert.strictEqual(parseTextRes.parsed.personal.fullName, 'Pritam Rauniyar');
-  } finally {
-    GeminiService.parseResumeText = origParseText;
-  }
-
-  // 14. PARSE_RESUME_FILE (with and without key)
-  prof.settings.geminiApiKey = '';
-  await StorageService.saveProfile(prof);
-  const parseFileNoKey = await sendMessage({ action: 'PARSE_RESUME_FILE' });
-  assert.ok(parseFileNoKey.error.includes('Missing Gemini API Key'));
-
-  prof.settings.geminiApiKey = 'test-key';
-  await StorageService.saveProfile(prof);
-
-  const origParseFile = GeminiService.parseResumeFile;
-  GeminiService.parseResumeFile = async () => ({ personal: { fullName: 'Pritam Rauniyar' } });
-  try {
-    const parseFileRes = await sendMessage({ action: 'PARSE_RESUME_FILE', base64Data: 'abc', mimeType: 'application/pdf' });
-    assert.strictEqual(parseFileRes.success, true);
-    assert.strictEqual(parseFileRes.parsed.personal.fullName, 'Pritam Rauniyar');
-  } finally {
-    GeminiService.parseResumeFile = origParseFile;
-  }
-
-  // 15. SAVE_NESTED_FIELD, SAVE_WORK_EXPERIENCE_FIELD & USER_CLEARED_FIELD
+  // 13. SAVE_NESTED_FIELD, SAVE_WORK_EXPERIENCE_FIELD & USER_CLEARED_FIELD
   const saveNestedRes = await sendMessage({
     action: 'SAVE_NESTED_FIELD',
     parentScope: 'Education 1',
@@ -431,11 +373,10 @@ test('ServiceWorker: onMessage Message Routing & Actions', async () => {
   });
   assert.strictEqual(clearFieldRes.success, true);
 
-  // 16. Unknown action & Error in handler
+  // 14. Unknown action & Error in handler
   const unknownRes = await sendMessage({ action: 'UNKNOWN_ACTION_XYZ' });
   assert.strictEqual(unknownRes.error, 'Unknown action');
 
-  // Trigger error inside handler
   const origSave = StorageService.saveProfile;
   StorageService.saveProfile = async () => { throw new Error('Forced Save Failure'); };
   try {

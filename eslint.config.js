@@ -31,7 +31,8 @@ module.exports = [
         StorageService: 'readonly',
         GeminiService: 'readonly',
         AuditLogger: 'readonly',
-        PdfExtractor: 'readonly'
+        PdfExtractor: 'readonly',
+        DeterministicResumeParser: 'readonly'
       }
     },
     rules: sharedRules
@@ -91,7 +92,8 @@ module.exports = [
         StorageService: 'readonly',
         GeminiService: 'readonly',
         AuditLogger: 'readonly',
-        PdfExtractor: 'readonly'
+        PdfExtractor: 'readonly',
+        DeterministicResumeParser: 'readonly'
       }
     },
     rules: sharedRules

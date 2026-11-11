@@ -83,7 +83,7 @@ var AtsAdapters = {
       category: "personal",
       subKey: "firstName",
       labels: ["first name", "given name", "forename", "first_name", "given name(s)", "given names"],
-      names: ["firstname", "first_name", "first-name", "givenname", "given-name"],
+      names: ["firstname", "first_name", "first-name", "givenname", "given-name", "job_application[first_name]", "job_application_first_name"],
       autocomplete: ["given-name"],
       workdayId: ["legalnamesection_firstname", "firstname", "givenname"]
     },
@@ -101,7 +101,7 @@ var AtsAdapters = {
       category: "personal",
       subKey: "lastName",
       labels: ["last name", "surname", "family name", "last_name", "family name(s)", "family names"],
-      names: ["lastname", "last_name", "last-name", "familyname", "family-name"],
+      names: ["lastname", "last_name", "last-name", "familyname", "family-name", "job_application[last_name]", "job_application_last_name"],
       autocomplete: ["family-name"],
       workdayId: ["legalnamesection_lastname", "lastname", "familyname"]
     },
@@ -119,7 +119,7 @@ var AtsAdapters = {
       category: "personal",
       subKey: "email",
       labels: ["email", "email address", "e-mail"],
-      names: ["email", "email_address", "emailaddress"],
+      names: ["email", "email_address", "emailaddress", "job_application[email]", "job_application_email"],
       autocomplete: ["email"],
       workdayId: ["email", "emailaddress"]
     },
@@ -128,7 +128,7 @@ var AtsAdapters = {
       category: "personal",
       subKey: "phone",
       labels: ["phone", "phone number", "mobile", "cell", "telephone"],
-      names: ["phone", "phonenumber", "phone_number", "mobile", "cell_phone"],
+      names: ["phone", "phonenumber", "phone_number", "mobile", "cell_phone", "job_application[phone]", "job_application_phone"],
       autocomplete: ["tel", "tel-national"],
       workdayId: ["phone-number", "phonenumber"]
     },
@@ -145,8 +145,8 @@ var AtsAdapters = {
       key: "city",
       category: "personal",
       subKey: "city",
-      labels: ["city", "town", "municipality"],
-      names: ["city", "town"],
+      labels: ["city", "town", "municipality", "location (city)", "candidate location", "your location"],
+      names: ["city", "town", "job_application[location]", "job_application_location", "candidate_location"],
       autocomplete: ["address-level2"],
       workdayId: ["addresssection_city", "city"]
     },
@@ -374,7 +374,7 @@ var AtsAdapters = {
       category: "presets",
       subKey: "gender",
       labels: ["gender", "gender identity"],
-      names: ["gender", "gender_identity"],
+      names: ["gender", "gender_identity", "job_application[gender]", "job_application_gender"],
       autocomplete: ["sex"],
       workdayId: ["gender"]
     },
@@ -383,7 +383,7 @@ var AtsAdapters = {
       category: "presets",
       subKey: "veteranStatus",
       labels: ["veteran status", "are you a veteran", "military status", "protected veteran"],
-      names: ["veteran", "veteran_status", "military"],
+      names: ["veteran", "veteran_status", "military", "job_application[veteran_status]", "job_application_veteran_status"],
       autocomplete: [],
       workdayId: ["veteran"]
     },
@@ -392,9 +392,18 @@ var AtsAdapters = {
       category: "presets",
       subKey: "disabilityStatus",
       labels: ["disability status", "disability", "do you have a disability"],
-      names: ["disability", "disability_status"],
+      names: ["disability", "disability_status", "job_application[disability_status]", "job_application_disability_status"],
       autocomplete: [],
       workdayId: ["disability"]
+    },
+    {
+      key: "race",
+      category: "presets",
+      subKey: "race",
+      labels: ["race", "ethnicity", "race / ethnicity", "race/ethnicity", "ethnic background"],
+      names: ["race", "ethnicity", "race_ethnicity", "job_application[race]", "job_application_race"],
+      autocomplete: [],
+      workdayId: ["race", "ethnicity"]
     },
     {
       key: "school",
@@ -682,9 +691,9 @@ var AtsAdapters = {
     }
 
     // 4. Parent container heading or formfield (CRITICAL: check parentElement so el doesn't self-match)
-    const container = el.parentElement?.closest('[data-automation-id*="formField"], [data-automation-id*="FormField"], [data-uxi-formfield="true"], .field, .form-group, .application-question, [class*="formField"], [class*="form-field"], [class*="formItem"], .css-1');
+    const container = el.parentElement?.closest('[data-automation-id*="formField"], [data-automation-id*="FormField"], [data-uxi-formfield="true"], .field, .form-group, .application-question, .application-field, fieldset, [class*="field-"], [class*="formField"], [class*="form-field"], [class*="formItem"], [id^="custom_"], .css-1');
     if (container) {
-      const heading = container.querySelector('label, .label, .field-label, legend, span[id*="label"], [data-automation-id*="label"], [class*="Label"], h4, h5');
+      const heading = container.querySelector('label, .label, .field-label, legend, span[id*="label"], [data-automation-id*="label"], [class*="Label"], [class*="label"], h4, h5, p.label, strong');
       if (heading) {
         const txt = (heading.innerText || heading.textContent || '').trim();
         if (txt) textSignals.push(txt);
@@ -1123,7 +1132,11 @@ var AtsAdapters = {
   // Helper to extract value safely from nested profile, supporting sequential items
   getProfileValue(profile, category, subKey, index = 0) {
     if (!profile) return "";
-    if (category === "personal") return profile.personal?.[subKey] || "";
+    if (category === "personal") {
+      if (subKey === "city") return profile.personal?.city || profile.personal?.location || "";
+      if (subKey === "location") return profile.personal?.location || (profile.personal?.city ? `${profile.personal.city}${profile.personal.state ? ', ' + profile.personal.state : ''}` : "");
+      return profile.personal?.[subKey] || "";
+    }
     if (category === "links") return profile.links?.[subKey] || "";
     if (category === "experience") {
       const items = profile.experience?.items || [];
@@ -1163,7 +1176,7 @@ var AtsAdapters = {
   detectPortalType(hostOrUrl = "") {
     const str = String(hostOrUrl || (typeof window !== 'undefined' ? window.location?.hostname : "")).toLowerCase();
     if (str.includes("myworkdayjobs.com") || str.includes("workday")) return "workday";
-    if (str.includes("greenhouse.io")) return "greenhouse";
+    if (str.includes("greenhouse.io") || str.includes("grnhse")) return "greenhouse";
     if (str.includes("lever.co")) return "lever";
     if (str.includes("ashbyhq.com")) return "ashby";
     if (str.includes("taleo.net") || str.includes("taleo")) return "taleo";
@@ -1178,6 +1191,16 @@ var AtsAdapters = {
     if (str.includes("rippling-ats.com") || str.includes("rippling")) return "rippling";
     if (str.includes("ziprecruiter.com")) return "ziprecruiter";
     if (str.includes("phenompeople.com") || str.includes("phenom-feeds") || str.includes("phenom")) return "phenom";
+
+    // Check if document contains an embedded Greenhouse or ATS iframe
+    if (typeof document !== 'undefined' && document.querySelector) {
+      if (document.querySelector('iframe[src*="greenhouse.io"], #grnhse_iframe, iframe[id*="grnhse"], div#grnhse_app')) {
+        return "greenhouse";
+      }
+      if (document.querySelector('iframe[src*="lever.co"]')) return "lever";
+      if (document.querySelector('iframe[src*="ashbyhq.com"]')) return "ashby";
+    }
+
     return "generic";
   },
 
@@ -1582,7 +1605,7 @@ const ComplexUIAdapters = {
     }
 
     const options = typeof document !== 'undefined'
-      ? Array.from(document.querySelectorAll('[role="option"], .select2-results__option, div[class*="option"], li[class*="option"]'))
+      ? Array.from(document.querySelectorAll('[role="option"], .select2-results__option, .select__option, div[class*="select__option"], .pac-item, .autocomplete-suggestion, div[class*="option"], li[class*="option"]'))
       : [];
 
     let bestOption = null;

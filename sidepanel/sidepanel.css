@@ -102,8 +102,12 @@ body {
 
 .sp-action-banner {
   display: grid;
-  grid-template-columns: 1.6fr 1.2fr;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+#sp-autofill-btn {
+  grid-column: span 2;
 }
 
 .sp-primary-btn {
@@ -175,6 +179,13 @@ body {
   border-radius: 8px;
   padding: 10px;
   text-align: center;
+}
+
+.sp-stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
 }
 
 .sp-stat-val {

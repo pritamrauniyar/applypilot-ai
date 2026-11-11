@@ -17,12 +17,12 @@
           </svg>
         </div>
         <div>
-          <h1 class="ap-title">ApplyPilot <span class="ap-badge-ai">AI</span></h1>
-          <p class="ap-subtitle">Universal Job Application Engine &bull; <a href="https://pritamrauniyar.com.np/" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 600;">by Pritam Rauniyar ↗</a></p>
+          <h1 class="ap-title">ApplyPilot <span class="ap-badge-ai">Smart Engine</span></h1>
+          <p class="ap-subtitle">Offline Universal Application Engine &bull; <a href="https://pritamrauniyar.com.np/" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 600;">by Pritam Rauniyar ↗</a></p>
         </div>
       </div>
       <div style="display: flex; gap: 6px; align-items: center;">
-        <button class="ap-icon-btn" id="btn-header-settings" title="AI Settings & API Key">
+        <button class="ap-icon-btn" id="btn-header-settings" title="Engine Settings & Privacy">
           ⚙️
         </button>
         <button class="ap-icon-btn" id="btn-open-sidepanel" title="Open Side Panel">
@@ -36,37 +36,39 @@
     <!-- Navigation Tabs -->
     <nav class="ap-nav">
       <button class="ap-tab active" data-tab="tab-quickfill" title="Autofill Current Page">⚡ Fill</button>
-      <button class="ap-tab" data-tab="tab-dynamic" title="Dynamic Knowledge Base (AI Categorized)">🧠 Knowledge</button>
+      <button class="ap-tab" data-tab="tab-dynamic" title="Dynamic Knowledge Base">🧠 Knowledge</button>
       <button class="ap-tab" data-tab="tab-profile" title="Candidate Profile Details">👤 Profile</button>
       <button class="ap-tab" data-tab="tab-presets" title="Standard Application Presets">📋 Presets</button>
-      <button class="ap-tab" data-tab="tab-resume" title="Resume AI Parser">📄 Resume</button>
+      <button class="ap-tab" data-tab="tab-resume" title="Offline Resume Parser">📄 Resume</button>
       <button class="ap-tab" data-tab="tab-logs" id="tab-btn-logs" title="Application Audit Log & Telemetry">📊 Activity</button>
-      <button class="ap-tab" data-tab="tab-settings" id="tab-btn-ai-settings" title="Gemini AI Key & Settings">⚙️ AI Key</button>
+      <button class="ap-tab" data-tab="tab-settings" id="tab-btn-settings" title="Engine Settings & Privacy">⚙️ Settings</button>
     </nav>
 
     <!-- Tab 1: Quick Fill -->
     <div class="ap-tab-content active" id="tab-quickfill">
-      <!-- Instant API Key Banner if not yet configured -->
-      <div id="api-key-banner" class="ap-alert-banner" style="display: none;">
-        <div class="ap-alert-header">
-          <span>🔑 <strong>Gemini API Key Required for AI</strong></span>
-          <a href="https://aistudio.google.com/app/apikey" target="_blank" class="ap-link-pill">Get Free Key ↗</a>
-        </div>
-        <p class="ap-alert-desc">Enter your free Google Gemini key below to enable AI resume parsing and essay drafting:</p>
-        <div class="ap-alert-row">
-          <input type="password" id="quick-api-key" placeholder="Paste key starting with AIzaSy..." class="ap-inline-input">
-          <button class="ap-btn ap-btn-primary ap-btn-sm" id="btn-quick-save-key">Save Key</button>
-        </div>
-      </div>
-
       <!-- Quick Action Cards -->
       <div class="ap-card ap-card-highlight">
         <div class="ap-card-title-row">
           <h4>Page Form Autofill</h4>
           <span class="ap-tag" id="current-portal-tag">Auto-Detect</span>
         </div>
+        <p class="ap-text-muted ap-truncate" id="ap-tab-url" style="margin-bottom: 8px;">Inspecting active page...</p>
+        <div class="ap-stats-row">
+          <div class="ap-stat">
+            <span class="ap-stat-num" id="stat-detected">-</span>
+            <span class="ap-stat-label">Detected</span>
+          </div>
+          <div class="ap-stat">
+            <span class="ap-stat-num ap-text-success" id="stat-matched">-</span>
+            <span class="ap-stat-label">Matched</span>
+          </div>
+          <div class="ap-stat">
+            <span class="ap-stat-num ap-text-warn" id="stat-unmatched">-</span>
+            <span class="ap-stat-label">Unmatched</span>
+          </div>
+        </div>
         <p class="ap-text-muted" style="margin-bottom: 12px;">
-          Automatically detects Greenhouse, Lever, Workday, Ashby, and custom career portals worldwide.
+          Automatically detects Greenhouse (including embedded iframes), Lever, Workday, Ashby, and custom career portals.
         </p>
         <div style="display: flex; gap: 8px;">
           <button class="ap-btn ap-btn-primary" id="btn-autofill-page" style="flex: 1;">
@@ -75,8 +77,8 @@
             </svg>
             Autofill Application Now
           </button>
-          <button class="ap-btn ap-btn-secondary" id="btn-scan-unmatched" title="Scan and suggest answers for custom/non-standard questions">
-            ✨ AI Assist
+          <button class="ap-btn ap-btn-secondary" id="btn-scan-unmatched" title="Review and teach unrecognized fields on this page">
+            ⚡ Review Unmatched
           </button>
         </div>
         <div style="display: flex; margin-top: 8px;">
@@ -282,7 +284,7 @@
           <span class="ap-badge" id="dynamic-fields-count">0 Fields</span>
         </div>
         <p class="ap-text-muted" style="margin-bottom: 10px; font-size: 11px;">
-          All personal entities, nested details (e.g. College $\rightarrow$ Degree/Major), and company rules are organized here. Automatically expands as you apply.
+          All personal entities, nested details (e.g. College &rarr; Degree/Major), and company rules are organized here. Automatically expands as you apply.
         </p>
         <div style="display: flex; gap: 6px; margin-bottom: 10px;">
           <input type="text" id="df-search-input" placeholder="🔍 Search fields, aliases, values..." style="flex: 1; font-size: 11.5px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;">
@@ -325,7 +327,7 @@
 
         <!-- Dynamic Grouped Container -->
         <div id="dynamic-categories-container" style="display: flex; flex-direction: column; gap: 10px;">
-          <!-- Dynamically populated grouped by AI categories -->
+          <!-- Dynamically populated by category -->
         </div>
       </div>
     </div>
@@ -333,8 +335,8 @@
     <!-- Tab 5: Resume Ingestion -->
     <div class="ap-tab-content" id="tab-resume">
       <div class="ap-card">
-        <h4>📄 Upload Resume (PDF / DOC)</h4>
-        <p class="ap-text-muted" style="margin-bottom: 12px;">Gemini will read your resume and extract personal details, experience, links, and education directly into your profile.</p>
+        <h4>📄 Upload Resume (PDF / TXT)</h4>
+        <p class="ap-text-muted" style="margin-bottom: 12px;">ApplyPilot's offline Intelligent Engine extracts personal details, experience, links, skills, and education directly in your browser &mdash; 100% private with zero external API keys.</p>
 
         <div class="ap-dropzone" id="resume-dropzone">
           <svg viewBox="0 0 24 24" width="32" height="32" fill="#4f46e5">
@@ -353,39 +355,20 @@
           <textarea id="resume-text-input" rows="5" placeholder="Paste your raw resume text here..."></textarea>
         </div>
         <button class="ap-btn ap-btn-primary" id="btn-parse-resume-text">
-          ✨ Extract Profile with Gemini AI
+          ⚡ Parse &amp; Import Resume Text
         </button>
       </div>
     </div>
 
-    <!-- Tab 6: AI & Settings -->
+    <!-- Tab 6: Engine Settings & Privacy -->
     <div class="ap-tab-content" id="tab-settings">
       <div class="ap-card">
-        <h4>Gemini Free Tier API Key</h4>
-        <p class="ap-text-muted" style="margin-bottom: 8px;">
-          Get your 100% free API key from <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a>. Generous free quotas for high-volume job applications!
+        <h4>Engine Preferences</h4>
+        <p class="ap-text-muted" style="margin-bottom: 10px;">
+          Runs 100% locally in your browser with deterministic matching and zero API key requirements.
         </p>
         <div class="ap-input-group">
-          <label>Google Gemini API Key</label>
-          <input type="password" id="setting-api-key" placeholder="AIzaSy...">
-        </div>
-        <div style="display: flex; gap: 8px; margin-top: -4px; margin-bottom: 10px;">
-          <button type="button" class="ap-btn ap-btn-secondary ap-btn-sm" id="btn-test-api-key">
-            ⚡ Test API Connection
-          </button>
-        </div>
-        <div id="api-test-result" style="display: none; padding: 8px 10px; border-radius: 6px; font-size: 11.5px; margin-bottom: 12px; line-height: 1.4;"></div>
-        <div class="ap-input-group">
-          <label>Gemini Model</label>
-          <select id="setting-model">
-            <option value="">Auto-detect best available model</option>
-          </select>
-          <p class="ap-text-muted" style="font-size: 10.5px; margin-top: 4px;">
-            Run “Test API Connection” to load the models your key can actually use.
-          </p>
-        </div>
-        <div class="ap-input-group">
-          <label>Essay Answer Tone</label>
+          <label>Smart Draft Tone</label>
           <select id="setting-tone">
             <option value="Professional &amp; Impactful">Professional &amp; Impactful (metrics and outcomes)</option>
             <option value="Technical &amp; Impactful">Technical &amp; Impactful (scale, architecture)</option>
@@ -402,8 +385,7 @@
       <div class="ap-card">
         <h4>Privacy</h4>
         <p class="ap-text-muted" style="margin-bottom: 10px;">
-          ApplyPilot stores everything locally. These controls decide what it is allowed to record,
-          and what may be sent to Google's Gemini API using your own key.
+          ApplyPilot stores all profile data and learned answers strictly on your device. These controls decide what it is allowed to record.
         </p>
 
         <div class="ap-input-group" style="display: flex; align-items: flex-start; gap: 8px;">
@@ -423,17 +405,6 @@
             Record field values in the activity log
             <span class="ap-text-muted" style="display: block; font-size: 10.5px;">
               Off by default. When off, the log records which field was filled but masks the value.
-            </span>
-          </label>
-        </div>
-
-        <div class="ap-input-group" style="display: flex; align-items: flex-start; gap: 8px;">
-          <input type="checkbox" id="setting-ai-sync" checked>
-          <label for="setting-ai-sync" style="margin-bottom: 0;">
-            Send corrections to Gemini to improve matching
-            <span class="ap-text-muted" style="display: block; font-size: 10.5px;">
-              Sends your saved answers and corrections to Google's API with your own key.
-              Turn off to keep all learning fully on-device.
             </span>
           </label>
         </div>
@@ -500,7 +471,7 @@
         <!-- Background Sync Action Button -->
         <div style="margin-bottom: 10px;">
           <button type="button" class="ap-btn ap-btn-outline ap-btn-sm" id="btn-sync-ai-memory" style="width: 100%; font-size: 11px; display: flex; justify-content: center; align-items: center; gap: 6px;">
-            <span>⚡ Sync & Refine Knowledge Base with AI Now</span>
+            <span>⚡ Consolidate Learned Memory Now</span>
           </button>
         </div>
 
@@ -558,6 +529,7 @@
   <script src="../lib/storage.js"></script>
   <script src="../lib/audit-logger.js"></script>
   <script src="../lib/pdf-extractor.js"></script>
+  <script src="../lib/deterministic-resume-parser.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

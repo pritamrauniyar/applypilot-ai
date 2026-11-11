@@ -85,9 +85,20 @@
   function isRelevantFrame() {
     try {
       if (window.top !== window.self) {
+        // Known ATS portals and job application paths must NEVER be rejected
+        const href = (window.location && window.location.href) ? window.location.href.toLowerCase() : "";
+        const adapters = getAtsAdapters();
+        if (adapters && typeof adapters.detectPortalType === 'function') {
+          const portal = adapters.detectPortalType(href);
+          if (portal && portal !== "generic") return true;
+        }
+        if (href.includes("greenhouse.io") || href.includes("lever.co") || href.includes("ashbyhq") || href.includes("job") || href.includes("apply")) {
+          return true;
+        }
+
         const w = window.innerWidth || 0;
         const h = window.innerHeight || 0;
-        if (w < 300 || h < 200) return false;
+        if (w > 0 && h > 0 && (w < 100 || h < 100)) return false;
       }
       return true;
     } catch (e) {
@@ -274,6 +285,28 @@
     // Handle Date & Month input types gracefully to prevent InvalidStateError / DOMException
     let formattedVal = valStr;
 
+    const parseYearMonth = (raw) => {
+      const mMap = {
+        jan: '01', january: '01', feb: '02', february: '02', mar: '03', march: '03',
+        apr: '04', april: '04', may: '05', jun: '06', june: '06', jul: '07', july: '07',
+        aug: '08', august: '08', sep: '09', sept: '09', september: '09',
+        oct: '10', october: '10', nov: '11', november: '11', dec: '12', december: '12'
+      };
+      const clean = String(raw || '').trim();
+      const monthYearMatch = clean.match(/^([A-Za-z]+)\.?\s*,?\s*(\d{4})$/);
+      if (monthYearMatch) {
+        const mm = mMap[monthYearMatch[1].toLowerCase()];
+        if (mm) return `${monthYearMatch[2]}-${mm}`;
+      }
+      if (/^\d{4}-\d{2}$/.test(clean)) return clean;
+      if (/^\d{1,2}\/\d{4}$/.test(clean)) {
+        const [m, y] = clean.split('/');
+        return `${y}-${m.padStart(2, '0')}`;
+      }
+      if (/^(19|20)\d{2}$/.test(clean)) return `${clean}-01`;
+      return null;
+    };
+
     if (element.type === 'date') {
       // If candidate role is ongoing ("Present" / "Current"), check any adjacent "Currently work here" checkbox
       if (valStr.toLowerCase().includes('present') || valStr.toLowerCase().includes('current')) {
@@ -291,12 +324,9 @@
         return; // Skip setting literal text "Present" into HTML5 <input type="date">
       }
 
-      // Format to valid ISO date: YYYY-MM-DD
-      if (/^\d{4}-\d{2}$/.test(valStr)) {
-        formattedVal = `${valStr}-01`;
-      } else if (/^\d{2}\/\d{4}$/.test(valStr)) {
-        const parts = valStr.split('/');
-        formattedVal = `${parts[1]}-${parts[0].padStart(2, '0')}-01`;
+      const ym = parseYearMonth(valStr);
+      if (ym) {
+        formattedVal = `${ym}-01`;
       } else if (!/^\d{4}-\d{2}-\d{2}$/.test(valStr)) {
         const parsed = new Date(valStr);
         if (!isNaN(parsed.getTime())) {
@@ -311,14 +341,17 @@
       }
       if (/^\d{4}-\d{2}-\d{2}$/.test(valStr)) {
         formattedVal = valStr.substring(0, 7);
-      } else if (/^\d{4}-\d{2}$/.test(valStr)) {
-        formattedVal = valStr;
       } else {
-        const parsed = new Date(valStr);
-        if (!isNaN(parsed.getTime())) {
-          formattedVal = parsed.toISOString().substring(0, 7);
+        const ym = parseYearMonth(valStr);
+        if (ym) {
+          formattedVal = ym;
         } else {
-          return;
+          const parsed = new Date(valStr);
+          if (!isNaN(parsed.getTime())) {
+            formattedVal = parsed.toISOString().substring(0, 7);
+          } else {
+            return;
+          }
         }
       }
     } else if (element.type === 'number') {
@@ -520,7 +553,7 @@
     // Attach inline AI draft buttons to textareas
     attachInFieldAiButtons();
 
-    // Queue deep telemetry for background Gemini analysis (non-blocking)
+    // Queue deep telemetry for offline background consolidation (non-blocking)
     const targetCompany = adapters.extractTargetCompany ? adapters.extractTargetCompany(window.location.href, document.title) : "";
     safeSendMessage({
       action: "QUEUE_BACKGROUND_SYNC",
@@ -541,8 +574,11 @@
     const rate = metrics?.overallFillRate ? ` (${metrics.overallFillRate})` : '';
     updateFloatingBadge(filledCount);
 
-    showToast(`✓ Autofilled ${filledCount} fields${rate}!`);
-    return { filledCount, totalMatched: matched.length, metrics };
+    const hasChildFrames = typeof window !== 'undefined' && window.frames && window.frames.length > 0;
+    if (filledCount > 0 || !hasChildFrames) {
+      showToast(`✓ Autofilled ${filledCount} fields${rate}!`);
+    }
+    return { filledCount, totalMatched: matched.length, unmatchedCount: unmatched.length, metrics };
   }
 
   // 5. In-Field AI Sparkle Assist for Textareas & Open-ended Questions
@@ -573,8 +609,8 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'ap-infield-ai-btn';
-      btn.innerHTML = `<span>✨ AI Draft</span>`;
-      btn.title = "Generate a tailored response using Gemini AI";
+      btn.innerHTML = `<span>⚡ Smart Draft</span>`;
+      btn.title = "Draft a tailored response from your local ApplyPilot profile";
 
       btn.addEventListener('click', async (e) => {
         e.preventDefault();
@@ -645,7 +681,7 @@
           jobTitle: document.title || "Software Engineer II"
         }, (res) => {
           btn.classList.remove('ap-loading');
-          btn.innerHTML = `<span>✨ AI Draft</span>`;
+          btn.innerHTML = `<span>⚡ Smart Draft</span>`;
 
           if (res && res.answer) {
             setNativeValue(ta, res.answer);
@@ -690,15 +726,15 @@
               actionType: "ai_suggest",
               fieldLabel: `${parentScope} Role Description`,
               fieldNameOrId: descriptor.name || descriptor.id,
-              matchedKey: "infield_ai_draft",
+              matchedKey: "infield_smart_draft",
               valueSet: res.answer,
               status: "success",
-              details: `AI draft generated specifically for ${parentScope} (${targetTitle ? targetTitle + ' at ' : ''}${targetCompany || 'Employer'})`
+              details: `Smart draft generated for ${parentScope} (${targetTitle ? targetTitle + ' at ' : ''}${targetCompany || 'Employer'})`
             });
 
-            showToast(`✓ AI Draft created for ${parentScope}!`);
+            showToast(`✓ Smart Draft inserted for ${parentScope}!`);
           } else if (res && res.error) {
-            showToast(`ApplyPilot AI: ${res.error}`);
+            showToast(`ApplyPilot: ${res.error}`);
           }
         });
       });
@@ -723,14 +759,14 @@
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
             <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
           </svg>
-          ApplyPilot AI • Smart Field Suggestion
+          ApplyPilot • Smart Field Review
         </div>
         <button class="ap-close-btn" id="ap-review-close">&times;</button>
       </div>
       <div class="ap-review-body">
         <div class="ap-field-title">Application Question / Label:</div>
         <div class="ap-field-question">${escapeHtml(questionText)}</div>
-        <div class="ap-field-title">Suggested Answer (Review or Edit):</div>
+        <div class="ap-field-title">Answer to Fill &amp; Remember (Review or Edit):</div>
         <textarea class="ap-suggestion-textarea" id="ap-review-input">${escapeHtml(suggestedAnswer)}</textarea>
       </div>
       <div class="ap-review-footer">
@@ -793,7 +829,7 @@
       options = Array.from(target.element.options).map(o => o.text.trim()).filter(Boolean);
     }
 
-    // Query Gemini
+    // Query local intelligent engine for best matching suggestion
     safeSendMessage({
       action: "SUGGEST_FIELD_ANSWER",
       fieldLabel: questionText,
@@ -801,11 +837,11 @@
       options: options,
       pageContext: document.title
     }, (res) => {
-      if (res && res.suggestion) {
+      if (res && !res.error) {
         showReviewCard({
           descriptor: target.descriptor,
           element: target.element,
-          suggestedAnswer: res.suggestion,
+          suggestedAnswer: res.suggestion || "",
           onApprove: (approvedAnswer) => {
             // Fill into DOM
             setNativeValue(target.element, approvedAnswer);
@@ -831,7 +867,7 @@
                 matchedKey: questionText,
                 valueSet: approvedAnswer,
                 status: "success",
-                details: "AI suggestion approved and learned"
+                details: "Field review answer approved and learned"
               });
               // Reload profile memory
               loadProfile();
@@ -839,7 +875,7 @@
           }
         });
       } else {
-        showToast(res?.error || "Could not generate an AI suggestion for this field.");
+        showToast(res?.error || "Could not prepare review card for this field.");
       }
     });
   }
@@ -865,7 +901,7 @@
       <div class="ap-menu-card" id="ap-hub-menu">
         <div class="ap-menu-header">
           <div class="ap-menu-title">
-            <span>🚀 ApplyPilot AI</span>
+            <span>🚀 ApplyPilot</span>
           </div>
           <button class="ap-close-btn" id="ap-menu-close">&times;</button>
         </div>
@@ -886,7 +922,7 @@
             <svg viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
             </svg>
-            <span>Scan Unmatched Field with AI</span>
+            <span>Review & Learn Unmatched Field</span>
           </button>
           <button class="ap-action-btn" id="ap-btn-sidepanel">
             <svg viewBox="0 0 24 24" fill="currentColor">
@@ -940,17 +976,17 @@
 
     floatingHubEl.querySelector('#ap-btn-autofill').addEventListener('click', async () => {
       menu.classList.remove('ap-visible');
-      await autofillForm();
+      await runAutofillWithFrames();
     });
 
     floatingHubEl.querySelector('#ap-btn-capture-fields').addEventListener('click', async () => {
       menu.classList.remove('ap-visible');
-      await capturePageValues();
+      await runCaptureWithFrames();
     });
 
     floatingHubEl.querySelector('#ap-btn-ai-scan').addEventListener('click', async () => {
       menu.classList.remove('ap-visible');
-      await suggestNextUnrecognizedField();
+      await runSuggestWithFrames();
     });
 
     floatingHubEl.querySelector('#ap-btn-sidepanel').addEventListener('click', () => {
@@ -1180,7 +1216,7 @@
             details: `User corrected autofilled value: "${el.dataset.apAutofillVal}" -> "${val}"`
           });
 
-          showToast(`✓ Correction recorded for background AI refinement`);
+          showToast(`✓ Correction recorded to improve local matching`);
         }
 
         // 3. Universal Hierarchical Parent-Context Saver
@@ -1579,8 +1615,198 @@
     observer.observe(document.body, { childList: true, subtree: true, attributes: false, characterData: false });
   }
 
+  // Cross-Frame Message Broker for nested ATS iframes (e.g. Greenhouse on Stripe)
+  function broadcastToChildFrames(action, payload = {}, timeoutMs = 250) {
+    return new Promise((resolve) => {
+      if (typeof window === 'undefined' || !window.frames || window.frames.length === 0) {
+        return resolve([]);
+      }
+
+      const reqId = "ap_frame_" + Date.now() + "_" + Math.random().toString(36).substr(2, 6);
+      const responses = [];
+      let pendingFrames = window.frames.length;
+
+      function onWindowMessage(event) {
+        if (!event.data || event.data.source !== "APPLYPILOT_FRAME_RESPONSE" || event.data.requestId !== reqId) {
+          return;
+        }
+        if (event.data.result) {
+          responses.push(event.data.result);
+        }
+        pendingFrames--;
+        if (pendingFrames <= 0) {
+          cleanup();
+          resolve(responses);
+        }
+      }
+
+      const timer = setTimeout(() => {
+        cleanup();
+        resolve(responses);
+      }, timeoutMs);
+
+      function cleanup() {
+        clearTimeout(timer);
+        try {
+          window.removeEventListener("message", onWindowMessage);
+        } catch (e) {}
+      }
+
+      try {
+        window.addEventListener("message", onWindowMessage);
+      } catch (e) {
+        return resolve([]);
+      }
+
+      for (let i = 0; i < window.frames.length; i++) {
+        try {
+          window.frames[i].postMessage({
+            source: "APPLYPILOT_PARENT_BROADCAST",
+            action,
+            requestId: reqId,
+            payload
+          }, "*");
+        } catch (e) {
+          pendingFrames--;
+        }
+      }
+    });
+  }
+
+  async function runAutofillWithFrames() {
+    const res = await autofillForm();
+    const childResults = await broadcastToChildFrames("AUTOFILL");
+    let totalFilled = res.filledCount || 0;
+    let unmatchedTotal = res.unmatchedCount || 0;
+    for (const cr of childResults) {
+      if (cr && cr.filledCount) totalFilled += cr.filledCount;
+      if (cr && cr.unmatchedCount) unmatchedTotal += cr.unmatchedCount;
+    }
+    if ((res.filledCount || 0) === 0 && totalFilled > 0) {
+      updateFloatingBadge(totalFilled);
+      showToast(`✓ Autofilled ${totalFilled} fields!`);
+    }
+    return { success: true, filledCount: totalFilled, unmatchedCount: unmatchedTotal };
+  }
+
+  async function runCaptureWithFrames() {
+    const res = await capturePageValues();
+    const childResults = await broadcastToChildFrames("CAPTURE_PAGE_FIELDS");
+    let totalCaptured = res.capturedCount || 0;
+    for (const cr of childResults) {
+      if (cr && cr.capturedCount) totalCaptured += cr.capturedCount;
+    }
+    return { success: true, capturedCount: totalCaptured };
+  }
+
+  async function runSuggestWithFrames() {
+    await loadProfile();
+    const localScan = scanFormFields();
+    if (localScan.unmatched.length > 0) {
+      await suggestNextUnrecognizedField();
+      return { opened: true, unmatchedCount: localScan.unmatched.length };
+    }
+    const childResults = await broadcastToChildFrames("SUGGEST_UNMATCHED");
+    if (childResults.some(cr => cr && cr.opened)) {
+      return { opened: true };
+    }
+    showToast("All detected fields on this page are already recognized and filled.");
+    return { opened: false };
+  }
+
+  // Subframe listener for parent broadcast commands
+  if (typeof window !== 'undefined') {
+    try {
+      window.addEventListener("message", async (event) => {
+        if (!event.data || event.data.source !== "APPLYPILOT_PARENT_BROADCAST") return;
+        const { action, requestId } = event.data;
+
+        let result = null;
+        try {
+          if (!cachedProfile) await loadProfile();
+          if (action === "AUTOFILL") {
+            const res = await autofillForm();
+            const nested = window.frames?.length > 0 ? await broadcastToChildFrames("AUTOFILL") : [];
+            let filledCount = res.filledCount || 0;
+            let unmatchedCount = res.unmatchedCount || 0;
+            for (const nr of nested) {
+              if (nr?.filledCount) filledCount += nr.filledCount;
+              if (nr?.unmatchedCount) unmatchedCount += nr.unmatchedCount;
+            }
+            result = { filledCount, unmatchedCount };
+          } else if (action === "SCAN_FIELDS") {
+            const scan = scanFormFields();
+            const adapters = getAtsAdapters();
+            let portalType = adapters?.detectPortalType ? adapters.detectPortalType(window.location.href) : "generic";
+            let total = scan.total || 0;
+            let matchedCount = scan.matched.length || 0;
+            let unmatchedCount = scan.unmatched.length || 0;
+            let matchedLabels = scan.matched.map(m => m.matchResult.label || m.matchResult.def?.key);
+            let fieldPreview = [
+              ...scan.matched.map(m => ({
+                label: m.descriptor.combinedLabels || m.descriptor.name || m.descriptor.placeholder || "Field",
+                matched: true
+              })),
+              ...scan.unmatched.map(u => ({
+                label: u.descriptor.combinedLabels || u.descriptor.name || u.descriptor.placeholder || "Unmapped Field",
+                matched: false
+              }))
+            ];
+            const nested = window.frames?.length > 0 ? await broadcastToChildFrames("SCAN_FIELDS") : [];
+            for (const nr of nested) {
+              if (!nr) continue;
+              total += (nr.total || 0);
+              matchedCount += (nr.matchedCount || 0);
+              unmatchedCount += (nr.unmatchedCount || 0);
+              if (portalType === "generic" && nr.portalType && nr.portalType !== "generic") portalType = nr.portalType;
+              if (nr.matchedLabels) matchedLabels = matchedLabels.concat(nr.matchedLabels);
+              if (Array.isArray(nr.fieldPreview)) fieldPreview = fieldPreview.concat(nr.fieldPreview);
+            }
+            result = {
+              total,
+              matchedCount,
+              unmatchedCount,
+              portalType,
+              matchedLabels,
+              fieldPreview: fieldPreview.slice(0, 20)
+            };
+          } else if (action === "CAPTURE_PAGE_FIELDS") {
+            result = await runCaptureWithFrames();
+          } else if (action === "SUGGEST_UNMATCHED") {
+            const scan = scanFormFields();
+            if (scan.unmatched.length > 0) {
+              await suggestNextUnrecognizedField();
+              result = { opened: true, unmatchedCount: scan.unmatched.length };
+            } else if (window.frames?.length > 0) {
+              const nested = await broadcastToChildFrames("SUGGEST_UNMATCHED");
+              result = { opened: nested.some(nr => nr && nr.opened), unmatchedCount: 0 };
+            } else {
+              result = { opened: false, unmatchedCount: 0 };
+            }
+          }
+        } catch (err) {}
+
+        if (event.source && typeof event.source.postMessage === 'function') {
+          try {
+            event.source.postMessage({
+              source: "APPLYPILOT_FRAME_RESPONSE",
+              requestId,
+              result
+            }, "*");
+          } catch (e) {}
+        }
+      });
+    } catch (e) {}
+  }
+
   // 12. Runtime Message Listener
   const onMessageListener = (request, sender, sendResponse) => {
+    // Only the top-level frame answers runtime tab messages and coordinates child iframes
+    // via broadcastToChildFrames(). Letting subframes answer races sendResponse() on Stripe/embedded ATS pages.
+    if (typeof window !== 'undefined' && window.top && window.self && window.top !== window.self) {
+      return false;
+    }
+
     // Every path must call sendResponse exactly once. Returning early without
     // responding leaves the sender's callback pending until the port closes.
     (async () => {
@@ -1591,22 +1817,53 @@
         }
 
         if (request.action === "AUTOFILL") {
-          const res = await autofillForm();
-          sendResponse({ success: true, ...res });
+          const summary = await runAutofillWithFrames();
+          sendResponse(summary);
         } else if (request.action === "CAPTURE_PAGE_FIELDS") {
-          const res = await capturePageValues();
-          sendResponse({ success: true, ...res });
+          const summary = await runCaptureWithFrames();
+          sendResponse(summary);
         } else if (request.action === "SCAN_FIELDS") {
           await loadProfile();
           const scan = scanFormFields();
+          const adapters = getAtsAdapters();
+          let portalType = adapters?.detectPortalType ? adapters.detectPortalType(window.location.href) : "generic";
+          const childResults = await broadcastToChildFrames("SCAN_FIELDS");
+          let total = scan.total || 0;
+          let matchedCount = scan.matched.length || 0;
+          let unmatchedCount = scan.unmatched.length || 0;
+          let matchedLabels = scan.matched.map(m => m.matchResult.label || m.matchResult.def?.key);
+          let fieldPreview = [
+            ...scan.matched.map(m => ({
+              label: m.descriptor.combinedLabels || m.descriptor.name || m.descriptor.placeholder || "Field",
+              matched: true
+            })),
+            ...scan.unmatched.map(u => ({
+              label: u.descriptor.combinedLabels || u.descriptor.name || u.descriptor.placeholder || "Unmapped Field",
+              matched: false
+            }))
+          ];
+          for (const cr of childResults) {
+            if (cr) {
+              total += (cr.total || 0);
+              matchedCount += (cr.matchedCount || 0);
+              unmatchedCount += (cr.unmatchedCount || 0);
+              if (portalType === "generic" && cr.portalType && cr.portalType !== "generic") {
+                portalType = cr.portalType;
+              }
+              if (cr.matchedLabels) matchedLabels = matchedLabels.concat(cr.matchedLabels);
+              if (Array.isArray(cr.fieldPreview)) fieldPreview = fieldPreview.concat(cr.fieldPreview);
+            }
+          }
           sendResponse({
-            total: scan.total,
-            matchedCount: scan.matched.length,
-            unmatchedCount: scan.unmatched.length,
-            matchedLabels: scan.matched.map(m => m.matchResult.label || m.matchResult.def?.key)
+            total,
+            matchedCount,
+            unmatchedCount,
+            matchedLabels,
+            portalType,
+            fieldPreview: fieldPreview.slice(0, 20)
           });
         } else if (request.action === "SUGGEST_UNMATCHED") {
-          await suggestNextUnrecognizedField();
+          await runSuggestWithFrames();
           sendResponse({ success: true });
         } else if (request.action === "SHOW_TOAST") {
           showToast(request.message || "");
@@ -1668,7 +1925,8 @@
       isRelevantFrame,
       isProfileReady,
       isCaptureEnabled,
-      mergeSequentialItems
+      mergeSequentialItems,
+      broadcastToChildFrames
     };
   }
 

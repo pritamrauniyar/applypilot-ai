@@ -1,13 +1,299 @@
-// ApplyPilot AI - Background Service Worker (Manifest V3)
-// Ephemeral, Stateless, Secure API Proxy for Gemini Free Tier
+// ApplyPilot - Background Service Worker (Manifest V3)
+// 100% Local, Offline Intelligent Application Engine (Zero external API key required)
+/* global StorageService, DeterministicResumeParser, AuditLogger, PdfExtractor, calculateStringSimilarity */
 
 if (typeof importScripts !== 'undefined') {
-  importScripts('../lib/storage.js', '../lib/pdf-extractor.js', '../lib/gemini-service.js', '../lib/audit-logger.js');
+  importScripts('../lib/storage.js', '../lib/pdf-extractor.js', '../lib/deterministic-resume-parser.js', '../lib/audit-logger.js');
+}
+
+function getParser() {
+  if (typeof DeterministicResumeParser !== 'undefined') return DeterministicResumeParser;
+  if (typeof globalThis !== 'undefined' && globalThis.DeterministicResumeParser) return globalThis.DeterministicResumeParser;
+  return null;
+}
+
+function getPdfExtractor() {
+  if (typeof PdfExtractor !== 'undefined') return PdfExtractor;
+  if (typeof globalThis !== 'undefined' && globalThis.PdfExtractor) return globalThis.PdfExtractor;
+  return null;
+}
+
+function similarityScore(a, b) {
+  if (typeof calculateStringSimilarity === 'function') return calculateStringSimilarity(a, b);
+  if (typeof globalThis !== 'undefined' && typeof globalThis.calculateStringSimilarity === 'function') {
+    return globalThis.calculateStringSimilarity(a, b);
+  }
+  const s1 = String(a || "").toLowerCase().trim();
+  const s2 = String(b || "").toLowerCase().trim();
+  if (!s1 || !s2) return 0;
+  if (s1 === s2) return 1;
+  if (s1.includes(s2) || s2.includes(s1)) return 0.9;
+  return 0;
+}
+
+// Deterministic offline open-ended answer builder using local profile & experience
+function buildOfflineDraftAnswer(request = {}, profile = {}) {
+  const question = String(request.question || "").trim();
+  const qLower = question.toLowerCase();
+  const tone = request.tone || profile.settings?.answerTone || "Professional & Impactful";
+  const personal = profile.personal || {};
+  const exp = profile.experience || {};
+  const edu = profile.education || {};
+  const presets = profile.presets || {};
+  const items = Array.isArray(exp.items) ? exp.items : [];
+  const companyName = String(request.companyName || request.targetCompany || "").trim();
+  const roleTitle = String(request.targetTitle || exp.currentTitle || items[0]?.title || "").trim();
+  const skills = String(exp.skills || "").trim();
+  const topSkills = skills ? skills.split(/[,;|]+/).map(s => s.trim()).filter(Boolean).slice(0, 6).join(", ") : "";
+
+  const applyCompany = (text) => {
+    if (!text) return "";
+    if (!companyName) return text;
+    return text.replace(/\[company(?:\s*name)?\]/gi, companyName);
+  };
+
+  // 1. Work experience role description / responsibilities
+  const expItem = request.experienceItem || (Number.isInteger(request.sectionIndex) ? items[request.sectionIndex] : null);
+  if (
+    request.category === "experience" ||
+    /role\s*description|job\s*description|responsibilities|summary\s*of\s*duties|duties/i.test(qLower)
+  ) {
+    if (expItem?.description) return expItem.description.trim();
+    const roleLabel = expItem?.title || roleTitle || "my role";
+    const orgLabel = expItem?.company || companyName || exp.currentCompany || "my team";
+    if (topSkills) {
+      return `Served as ${roleLabel} at ${orgLabel}, designing, building, and scaling production systems using ${topSkills} while collaborating cross-functionally to deliver reliable, measurable outcomes.`;
+    }
+    if (exp.headline) return exp.headline;
+  }
+
+  // 2. Check customFields, learnedMemory, and dynamicFields for an existing relevant answer
+  const sources = [];
+  for (const m of (profile.learnedMemory || [])) {
+    if (m?.fieldLabel && m?.answer) {
+      sources.push({ label: m.fieldLabel, keywords: m.questionKeywords || [], value: m.answer });
+    }
+  }
+  for (const cf of (profile.customFields || [])) {
+    if (cf?.label && cf?.value) {
+      sources.push({ label: cf.label, keywords: cf.keywords || [], value: cf.value });
+    }
+  }
+  for (const df of (profile.dynamicFields || [])) {
+    if (df?.value) {
+      sources.push({ label: df.label || "", keywords: df.aliases || [], value: df.value });
+    }
+  }
+
+  let bestScore = 0;
+  let bestAnswer = "";
+  for (const src of sources) {
+    const candidates = [src.label, ...(Array.isArray(src.keywords) ? src.keywords : [])].filter(Boolean);
+    for (const cand of candidates) {
+      const cleanCand = String(cand).toLowerCase().trim();
+      if (!cleanCand) continue;
+      let score = similarityScore(qLower, cleanCand);
+      if (qLower.includes(cleanCand) && cleanCand.length >= 4) score = Math.max(score, 0.85);
+      if (score > bestScore) {
+        bestScore = score;
+        bestAnswer = src.value;
+      }
+    }
+  }
+  if (bestScore >= 0.72 && bestAnswer) {
+    return applyCompany(bestAnswer);
+  }
+
+  // 3. Intent-based structured drafting from profile facts
+  const concise = /concise/i.test(tone);
+  const star = /story|challenge/i.test(tone);
+  const primaryRole = items[0] || {};
+  const recentSummary = primaryRole.description || exp.headline || "";
+
+  if (/why\s*(?:do\s*you\s*want|work|join|us|interested|this\s*role|company)/i.test(qLower)) {
+    const targetPhrase = companyName ? `${companyName}` : "your organization";
+    const expBit = roleTitle
+      ? `With ${exp.yearsOfExperience ? `${exp.yearsOfExperience}+ years of ` : ""}experience as a ${roleTitle}${topSkills ? ` working with ${topSkills}` : ""}, `
+      : "";
+    if (concise) {
+      return `I am excited to join ${targetPhrase} because of the opportunity to apply my background in ${topSkills || roleTitle || "software engineering"} to high-impact products.${recentSummary ? ` ${recentSummary}` : ""}`;
+    }
+    return `${expBit}I am excited by ${targetPhrase}'s engineering standards and product impact. ${recentSummary || "I focus on building reliable, maintainable solutions that directly serve users."} I look forward to bringing ownership, strong fundamentals, and collaborative execution to ${targetPhrase}.`;
+  }
+
+  if (/tell\s*me\s*about\s*yourself|introduce|summary|background|about\s*you/i.test(qLower)) {
+    const who = personal.fullName ? `I am ${personal.fullName}, ` : "I am ";
+    const rolePart = roleTitle
+      ? `a ${roleTitle}${exp.currentCompany ? ` currently at ${exp.currentCompany}` : ""}${exp.yearsOfExperience ? ` with ${exp.yearsOfExperience}+ years of experience` : ""}.`
+      : "an experienced professional focused on delivering measurable impact.";
+    const eduPart = edu.degree || edu.school
+      ? ` I hold a ${[edu.degree, edu.fieldOfStudy ? `in ${edu.fieldOfStudy}` : ""].filter(Boolean).join(" ")}${edu.school ? ` from ${edu.school}` : ""}.`
+      : "";
+    const skillPart = topSkills ? ` My core strengths include ${topSkills}.` : "";
+    return `${who}${rolePart}${recentSummary ? ` ${recentSummary}` : ""}${skillPart}${concise ? "" : eduPart}`.trim();
+  }
+
+  if (/challenge|achievement|accomplish|proud|project|difficult|conflict|star/i.test(qLower)) {
+    if (recentSummary) {
+      return star
+        ? `Situation & Task: While serving as ${primaryRole.title || roleTitle || "an engineer"}${primaryRole.company ? ` at ${primaryRole.company}` : ""}, our team needed to improve system reliability and scale. Action & Result: ${recentSummary}`
+        : recentSummary;
+    }
+    if (topSkills) {
+      return `In my most recent role${roleTitle ? ` as ${roleTitle}` : ""}, I delivered end-to-end initiatives using ${topSkills}, improving reliability and team delivery speed through structured execution and clear communication.`;
+    }
+  }
+
+  if (/leaving|looking|why\s*now|notice|availability|start/i.test(qLower)) {
+    return presets.noticePeriod
+      ? `I am seeking my next high-impact role where I can grow my technical and product ownership. Availability / Notice Period: ${presets.noticePeriod}.`
+      : "I am looking for a new opportunity where I can make a strong impact and take on broader ownership.";
+  }
+
+  if (/salary|compensation|ctc|pay/i.test(qLower) && presets.salaryExpectations) {
+    return presets.salaryExpectations;
+  }
+
+  // Generic professional response using profile details
+  const baseParts = [];
+  if (roleTitle) {
+    baseParts.push(`In my experience as a ${roleTitle}${exp.currentCompany ? ` at ${exp.currentCompany}` : ""}${exp.yearsOfExperience ? ` (${exp.yearsOfExperience}+ years)` : ""}, I have consistently delivered reliable, high-quality work.`);
+  }
+  if (recentSummary) {
+    baseParts.push(recentSummary);
+  }
+  if (topSkills && !concise) {
+    baseParts.push(`Key relevant skills: ${topSkills}.`);
+  }
+  if (companyName && !concise) {
+    baseParts.push(`I would welcome the opportunity to contribute these capabilities to ${companyName}.`);
+  }
+
+  if (baseParts.length > 0) return baseParts.join(" ");
+
+  return `I bring dedicated experience, strong problem-solving skills, and a collaborative mindset to ${companyName || "this role"}. Please update your Profile or Experience details in ApplyPilot for even more tailored drafts.`;
+}
+
+// Deterministic offline suggestion engine for unmatched form fields
+function buildOfflineFieldSuggestion(request = {}, profile = {}) {
+  const fieldLabel = String(request.fieldLabel || "").trim();
+  const qLower = fieldLabel.toLowerCase();
+  const options = Array.isArray(request.options) ? request.options.filter(Boolean) : [];
+  const pageContext = String(request.pageContext || "").toLowerCase();
+
+  const pickBestOption = (candidateValue) => {
+    if (!options.length) return candidateValue;
+    if (!candidateValue) return "";
+    const target = String(candidateValue).toLowerCase().trim();
+    const exact = options.find(o => o.toLowerCase().trim() === target);
+    if (exact) return exact;
+    const partial = options.find(o => {
+      const ol = o.toLowerCase().trim();
+      return ol.includes(target) || (target.length >= 2 && target.includes(ol));
+    });
+    return partial || candidateValue;
+  };
+
+  if (!qLower) {
+    return "";
+  }
+
+  // 1. Check learnedMemory, customFields, and dynamicFields (including companyRules/companyAnswers)
+  for (const m of (profile.learnedMemory || [])) {
+    if (!m?.answer) continue;
+    const lbl = (m.fieldLabel || "").toLowerCase().trim();
+    if (lbl === qLower || similarityScore(qLower, lbl) >= 0.85) {
+      return pickBestOption(m.answer);
+    }
+  }
+
+  for (const df of (profile.dynamicFields || [])) {
+    const terms = [df.label, ...(df.aliases || [])].filter(Boolean);
+    const matched = terms.some(t => {
+      const tl = String(t).toLowerCase().trim();
+      return tl === qLower || (tl.length >= 4 && (qLower.includes(tl) || tl.includes(qLower))) || similarityScore(qLower, tl) >= 0.88;
+    });
+    if (matched) {
+      const rules = df.companyRules || df.companyAnswers;
+      if (rules && typeof rules === 'object') {
+        for (const [comp, ans] of Object.entries(rules)) {
+          if (comp !== 'default' && pageContext.includes(comp.toLowerCase())) {
+            return pickBestOption(ans);
+          }
+        }
+        if (rules.default) return pickBestOption(rules.default);
+      }
+      if (df.value) return pickBestOption(df.value);
+    }
+  }
+
+  for (const cf of (profile.customFields || [])) {
+    if (!cf?.value) continue;
+    const terms = [cf.label, ...(cf.keywords || [])].filter(Boolean);
+    if (terms.some(t => qLower.includes(String(t).toLowerCase()) || similarityScore(qLower, t) >= 0.82)) {
+      return pickBestOption(cf.value);
+    }
+  }
+
+  // 2. Preset & heuristic rules
+  const p = profile.personal || {};
+  const presets = profile.presets || {};
+  const exp = profile.experience || {};
+  const edu = profile.education || {};
+  const links = profile.links || {};
+
+  if (/work\s*auth(?:orization|orised|orized)?|authorized\s*to\s*work|legally\s*authorized|right\s*to\s*work|eligible\s*to\s*work/i.test(qLower)) {
+    return pickBestOption(presets.workAuthorization || "Yes");
+  }
+  if (/sponsor|visa/i.test(qLower)) {
+    return pickBestOption(presets.requireSponsorship || "No");
+  }
+  if (/relocat/i.test(qLower)) {
+    return pickBestOption(presets.willingToRelocate || "Yes");
+  }
+  if (/notice\s*period|when\s*can\s*you\s*start|start\s*date|availability/i.test(qLower)) {
+    return pickBestOption(presets.noticePeriod || exp.noticePeriod || "Immediately available");
+  }
+  if (/salary|compensation|ctc|expected\s*pay/i.test(qLower)) {
+    return pickBestOption(presets.salaryExpectations || "Negotiable");
+  }
+  if (/years\s*(?:of)?\s*experience|how\s*many\s*years/i.test(qLower)) {
+    return pickBestOption(exp.yearsOfExperience || "");
+  }
+  if (/previously\s*worked|worked\s*(?:at|for)|former\s*employee|employed\s*by/i.test(qLower)) {
+    return pickBestOption("No");
+  }
+  if (/how\s*did\s*you\s*hear|referral\s*source|where\s*did\s*you\s*(?:hear|find)|source/i.test(qLower)) {
+    return pickBestOption("Company Website");
+  }
+  if (/18\s*years|legal\s*age|of\s*age/i.test(qLower)) {
+    return pickBestOption("Yes");
+  }
+  if (/gender/i.test(qLower)) return pickBestOption(presets.gender || "Decline to state");
+  if (/veteran/i.test(qLower)) return pickBestOption(presets.veteranStatus || "I decline to state");
+  if (/disabilit/i.test(qLower)) return pickBestOption(presets.disabilityStatus || "I decline to state");
+  if (/race|ethnicity/i.test(qLower)) return pickBestOption(presets.race || "Decline to state");
+  if (/linkedin/i.test(qLower)) return links.linkedin || "";
+  if (/github/i.test(qLower)) return links.github || "";
+  if (/portfolio|website|personal\s*site/i.test(qLower)) return links.portfolio || "";
+  if (/university|college|school|institution/i.test(qLower)) return edu.school || "";
+  if (/degree/i.test(qLower)) return pickBestOption(edu.degree || "");
+  if (/major|field\s*of\s*study|discipline/i.test(qLower)) return edu.fieldOfStudy || "";
+  if (/city/i.test(qLower)) return p.city || "";
+  if (/state|province/i.test(qLower)) return pickBestOption(p.state || "");
+  if (/country/i.test(qLower)) return pickBestOption(p.country || "");
+
+  // If this looks like a narrative prompt, draft a helpful response
+  if (request.fieldType === "textarea" || /why|describe|tell\s*us|explain|summary|cover\s*letter/i.test(qLower)) {
+    return buildOfflineDraftAnswer({ question: fieldLabel }, profile);
+  }
+
+  return "";
 }
 
 // 1. Extension Installation & Setup
 chrome.runtime.onInstalled.addListener(async () => {
-  console.log("[ApplyPilot AI] Extension installed/updated.");
+  console.log("[ApplyPilot] Extension installed/updated.");
 
   // Initialize default profile if first time
   const profile = await StorageService.getProfile();
@@ -23,7 +309,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 
     chrome.contextMenus.create({
       id: "applypilot-ai-answer",
-      title: "✨ Generate AI Answer (Gemini)",
+      title: "⚡ Smart Draft / Review Unmatched Field",
       contexts: ["editable"]
     });
 
@@ -47,15 +333,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     }
   } else if (info.menuItemId === "applypilot-ai-answer") {
     try {
-      const profile = await StorageService.getProfile();
-      const apiKey = profile.settings?.geminiApiKey;
-      if (!apiKey) {
-        await notifyUser(tab.id, "Add your free Gemini API key in ApplyPilot Settings to use AI answers.");
-        return;
-      }
       await chrome.tabs.sendMessage(tab.id, { action: "SUGGEST_UNMATCHED" });
     } catch (e) {
-      console.warn("Error running AI answer context action:", e);
+      console.warn("Error running unmatched field review action:", e);
+      await notifyUser(tab.id, "Open a job application page and reload the tab to review fields with ApplyPilot.");
     }
   } else if (info.menuItemId === "applypilot-open-sidepanel") {
     // A context-menu click is a user gesture, so opening directly is allowed here.
@@ -83,7 +364,7 @@ async function notifyUser(tabId, message) {
     chrome.notifications.create({
       type: "basic",
       iconUrl: "icons/icon-48.png",
-      title: "ApplyPilot AI",
+      title: "ApplyPilot",
       message
     });
     return;
@@ -91,7 +372,7 @@ async function notifyUser(tabId, message) {
   console.warn("[ApplyPilot] Could not surface message to user:", message);
 }
 
-// 2b. Background Intelligence Compiler & Debounced Queue Processor
+// 2b. Background Local Intelligence Compiler & Debounced Queue Processor
 //
 // MV3 service workers are evicted after ~30s idle, which silently killed the
 // setTimeout this used to rely on (and the whole queue with it). chrome.alarms
@@ -119,93 +400,87 @@ if (typeof chrome !== 'undefined' && chrome.alarms?.onAlarm) {
 async function processBackgroundSyncQueue() {
   try {
     const pendingItems = await StorageService.getPendingSyncQueue();
-    if (!pendingItems || pendingItems.length === 0) return;
+    if (!pendingItems || pendingItems.length === 0) {
+      return { processedCount: 0, learnedCount: 0, ignoredCount: 0 };
+    }
 
     // Clear queue so incoming items can gather cleanly
     await StorageService.clearPendingSyncQueue();
 
-    // Ensure all user_cleared_field items are permanently cleared from profile and marked ignored
+    let learnedCount = 0;
+    let ignoredCount = 0;
+
+    // 1. Consolidate cleared fields and deterministic user corrections locally
     for (const it of pendingItems) {
-      if (it && it.type === "user_cleared_field" && it.fieldLabel) {
+      if (!it) continue;
+
+      if (it.type === "user_cleared_field" && it.fieldLabel) {
         await StorageService.handleUserClearedField({
           fieldLabel: it.fieldLabel,
           fieldNameOrId: it.fieldNameOrId
         });
+      } else if (it.type === "user_correction") {
+        const label = String(it.fieldLabel || it.field || "").trim();
+        const value = it.correctedValue !== undefined ? String(it.correctedValue).trim() : String(it.value || "").trim();
+        if (label && value) {
+          await StorageService.saveLearnedField({
+            fieldLabel: label,
+            answer: value,
+            keywords: [label.toLowerCase(), it.fieldNameOrId].filter(Boolean)
+          });
+
+          const existingDynamic = await StorageService.getDynamicFields();
+          const matchedDynamic = existingDynamic.find(f =>
+            similarityScore(f.label, label) >= 0.85 ||
+            (f.aliases || []).some(a => similarityScore(a, label) >= 0.85)
+          );
+          if (matchedDynamic) {
+            const nextAliases = Array.from(new Set([...(matchedDynamic.aliases || []), label.toLowerCase()]));
+            if (it.targetCompany && matchedDynamic.canonicalKey === "employment.previous_employee_at_company") {
+              const rules = { ...(matchedDynamic.companyRules || {}), [it.targetCompany]: value };
+              await StorageService.updateDynamicField(matchedDynamic.id, { aliases: nextAliases, companyRules: rules });
+            } else {
+              await StorageService.updateDynamicField(matchedDynamic.id, { aliases: nextAliases, value });
+            }
+          }
+          learnedCount++;
+        }
       }
     }
 
-    // Re-read AFTER the mutations above. Reading earlier and saving that
-    // snapshot at the end would roll back every clearPendingSyncQueue() and
-    // handleUserClearedField() change just committed.
+    // 2. Promote repeatedly skipped optional fields into ignoredOptionalFields
     const profile = await StorageService.getProfile();
-    const apiKey = profile.settings?.geminiApiKey;
-
-    if (!apiKey) {
-      console.log("[ApplyPilot Background] Telemetry queued. Background Gemini compiler idle (no API key configured).");
-      return;
+    const statsEntries = Object.values(profile.fieldInteractionStats || {});
+    for (const st of statsEntries) {
+      if (st && st.predictedIgnored && st.label && !st.isRequired) {
+        const alreadyIgnored = (profile.ignoredOptionalFields || []).some(
+          ign => (ign.label || "").toLowerCase() === st.label.toLowerCase()
+        );
+        if (!alreadyIgnored) {
+          await StorageService.addIgnoredOptionalField({
+            label: st.label,
+            keywords: [st.label.toLowerCase()]
+          });
+          ignoredCount++;
+        }
+      }
     }
 
-    if (profile.settings?.aiKnowledgeSync === false) {
-      console.log("[ApplyPilot Background] AI knowledge sync disabled by user. Skipping compiler.");
-      return;
-    }
-
-    console.log(`[ApplyPilot Background] Running asynchronous AI knowledge compiler on ${pendingItems.length} items...`);
-    const result = await GeminiService.refineKnowledgeBase({
-      pendingItems,
-      profile,
-      apiKey
+    await AuditLogger.log({
+      actionType: "background_sync",
+      portalType: "local_engine",
+      status: "success",
+      details: `Local engine consolidated ${pendingItems.length} events (${learnedCount} learned, ${ignoredCount} ignore rules).`
     });
 
-    if (result) {
-      // Both updates below go through the serialized StorageService mutators
-      // rather than hand-patching a local snapshot, so a content script writing
-      // concurrently from another tab or frame cannot be clobbered.
-
-      // 1. Update Dynamic Fields
-      if (Array.isArray(result.updatedFields) && result.updatedFields.length > 0) {
-        const existing = await StorageService.getDynamicFields();
-        for (const uf of result.updatedFields) {
-          const match = existing.find(f => f.canonicalKey === uf.canonicalKey || f.id === uf.id);
-          if (match) {
-            await StorageService.updateDynamicField(match.id, {
-              ...uf,
-              id: match.id,
-              aliases: Array.from(new Set([...(match.aliases || []), ...(uf.aliases || [])]))
-            });
-          } else {
-            await StorageService.addDynamicField({
-              category: uf.category || "Custom / Learned",
-              canonicalKey: uf.canonicalKey || `custom.${Date.now()}`,
-              label: uf.label || "Custom Field",
-              aliases: uf.aliases || [],
-              value: uf.value || "",
-              companyRules: uf.companyRules || null
-            });
-          }
-        }
-      }
-
-      // 2. Update Recommended Ignored Fields
-      if (Array.isArray(result.recommendedIgnored) && result.recommendedIgnored.length > 0) {
-        for (const ign of result.recommendedIgnored) {
-          const label = (typeof ign === "string" ? ign : (ign.label || ign.fieldLabel || "")).trim();
-          if (label) {
-            await StorageService.addIgnoredOptionalField({ label, keywords: [label.toLowerCase()] });
-          }
-        }
-      }
-
-      await AuditLogger.log({
-        actionType: "background_sync",
-        portalType: "ai_compiler",
-        status: "success",
-        details: `Background AI compiler refined ${result.updatedFields?.length || 0} fields and ${result.recommendedIgnored?.length || 0} ignore rules.`
-      });
-      console.log("[ApplyPilot Background] AI compilation complete and saved.");
-    }
+    return {
+      processedCount: pendingItems.length,
+      learnedCount,
+      ignoredCount
+    };
   } catch (err) {
-    console.warn("[ApplyPilot Background] Error during background refinement:", err);
+    console.warn("[ApplyPilot Background] Error during local memory consolidation:", err);
+    return { processedCount: 0, learnedCount: 0, ignoredCount: 0, error: err.message };
   }
 }
 
@@ -265,8 +540,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
 
         case "TRIGGER_BACKGROUND_SYNC_NOW": {
-          await processBackgroundSyncQueue();
-          sendResponse({ success: true });
+          const summary = await processBackgroundSyncQueue();
+          sendResponse({
+            success: true,
+            processedCount: summary?.processedCount || 0,
+            learnedCount: summary?.learnedCount || 0,
+            ignoredCount: summary?.ignoredCount || 0
+          });
           break;
         }
 
@@ -397,103 +677,82 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           break;
         }
 
-        case "TEST_API_KEY": {
-          const profile = await StorageService.getProfile();
-          const key = request.apiKey || profile.settings?.geminiApiKey;
-          const result = await GeminiService.testApiKey(key);
-          sendResponse(result);
-          break;
-        }
-
-        case "DISCOVER_MODELS": {
-          const profile = await StorageService.getProfile();
-          const key = request.apiKey || profile.settings?.geminiApiKey;
-          const result = await GeminiService.testApiKey(key);
-          sendResponse(result);
-          break;
-        }
-
         case "GENERATE_AI_ANSWER": {
           const profile = await StorageService.getProfile();
-          const apiKey = profile.settings?.geminiApiKey;
-          if (!apiKey) {
-            sendResponse({ error: "Missing Gemini API Key. Please add your free key in ApplyPilot Settings." });
-            return;
-          }
-
-          // Empty/absent means auto-detect from the live ListModels response.
-          const model = request.model || profile.settings?.model || null;
-          const answer = await GeminiService.answerOpenEndedQuestion({
-            question: request.question,
-            jobTitle: request.jobTitle,
-            companyName: request.companyName || request.targetCompany,
-            parentScope: request.parentScope,
-            category: request.category,
-            sectionIndex: request.sectionIndex,
-            targetCompany: request.targetCompany,
-            targetTitle: request.targetTitle,
-            experienceItem: request.experienceItem,
-            userProfile: profile,
-            tone: profile.settings?.answerTone || "Technical & Impactful",
-            apiKey,
-            preferredModel: model
-          });
-
-          sendResponse({ success: true, answer });
+          const answer = buildOfflineDraftAnswer(request, profile);
+          sendResponse({ success: true, answer, offline: true });
           break;
         }
 
         case "SUGGEST_FIELD_ANSWER": {
           const profile = await StorageService.getProfile();
-          const apiKey = profile.settings?.geminiApiKey;
-          if (!apiKey) {
-            sendResponse({ error: "Missing Gemini API Key. Please add your free key in ApplyPilot Settings." });
-            return;
-          }
-
-          // Empty/absent means auto-detect from the live ListModels response.
-          const model = request.model || profile.settings?.model || null;
-          const suggestion = await GeminiService.suggestFieldAnswer({
-            fieldLabel: request.fieldLabel,
-            fieldType: request.fieldType,
-            options: request.options || [],
-            pageContext: request.pageContext || "",
-            userProfile: profile,
-            apiKey,
-            preferredModel: model
-          });
-
-          sendResponse({ success: true, suggestion });
+          const suggestion = buildOfflineFieldSuggestion(request, profile);
+          sendResponse({ success: true, suggestion, offline: true });
           break;
         }
 
         case "PARSE_RESUME_TEXT": {
-          const profile = await StorageService.getProfile();
-          const apiKey = profile.settings?.geminiApiKey || request.apiKey;
-          if (!apiKey) {
-            sendResponse({ error: "Missing Gemini API Key. Please add your free key in Settings." });
+          const resumeText = typeof request.resumeText === 'string' ? request.resumeText.trim() : '';
+          if (!resumeText) {
+            sendResponse({ error: "Please provide resume text to parse." });
             return;
           }
 
-          // Empty/absent means auto-detect from the live ListModels response.
-          const model = request.model || profile.settings?.model || null;
-          const parsed = await GeminiService.parseResumeText(request.resumeText, apiKey, model);
-          sendResponse({ success: true, parsed });
+          const parser = getParser();
+          if (!parser || typeof parser.parse !== 'function') {
+            sendResponse({ error: "Offline resume parser is unavailable." });
+            return;
+          }
+
+          const parsed = parser.parse(resumeText);
+          sendResponse({ success: true, parsed, offline: true });
           break;
         }
 
         case "PARSE_RESUME_FILE": {
-          const profile = await StorageService.getProfile();
-          const apiKey = profile.settings?.geminiApiKey || request.apiKey;
-          if (!apiKey) {
-            sendResponse({ error: "Missing Gemini API Key. Please add your free key in Settings." });
+          const mimeType = String(request.mimeType || "application/pdf").toLowerCase();
+          if (!request.base64Data || typeof request.base64Data !== 'string') {
+            sendResponse({ error: "No resume file data provided." });
             return;
           }
 
-          // Empty/absent means auto-detect from the live ListModels response.
-          const model = request.model || profile.settings?.model || null;
-          const parsed = await GeminiService.parseResumeFile(request.base64Data, request.mimeType, apiKey, model);
-          sendResponse({ success: true, parsed });
+          if (mimeType.startsWith("image/")) {
+            sendResponse({
+              error: "Image screenshots cannot be parsed offline. Please upload a text-based PDF/TXT resume or paste your resume text."
+            });
+            return;
+          }
+
+          const extractor = getPdfExtractor();
+          const parser = getParser();
+          if (!extractor || !parser) {
+            sendResponse({ error: "Offline resume extractor is unavailable." });
+            return;
+          }
+
+          const binaryStr = atob(request.base64Data);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+
+          const pseudoFile = {
+            name: request.fileName || (mimeType.includes("text") ? "resume.txt" : "resume.pdf"),
+            type: mimeType,
+            arrayBuffer: async () => bytes.buffer,
+            text: async () => new TextDecoder().decode(bytes)
+          };
+
+          const extractedText = await extractor.extractText(pseudoFile);
+          if (!extractedText || extractedText.trim().length < 15) {
+            sendResponse({
+              error: "Could not extract readable text from this file. Please paste your resume text instead."
+            });
+            return;
+          }
+
+          const parsed = parser.parse(extractedText);
+          sendResponse({ success: true, parsed, offline: true });
           break;
         }
 
@@ -510,5 +769,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 if (typeof module !== 'undefined') {
-  module.exports = { scheduleBackgroundRefinement, processBackgroundSyncQueue };
+  module.exports = {
+    scheduleBackgroundRefinement,
+    processBackgroundSyncQueue,
+    buildOfflineDraftAnswer,
+    buildOfflineFieldSuggestion
+  };
 }

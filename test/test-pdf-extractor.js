@@ -292,3 +292,81 @@ test('PdfExtractor: cleanPdfText keeps accented and non-Latin characters', () =>
   // Whitespace is collapsed and trimmed as before.
   assert.strictEqual(cleanPdfText('  spaced   out  '), 'spaced out');
 });
+
+test('PdfExtractor: preserves Y-row layout, TJ kerning (emails/phones), escaped parens, bfrange arrays, ligatures, and /URI links', async () => {
+  const zlib = require('zlib');
+  const { DeterministicResumeParser } = require('../lib/deterministic-resume-parser.js');
+
+  const cmapStream = `/CIDInit /ProcSet findresource begin
+begincmap
+1 beginbfrange
+<0010> <0012> [<0050> <0072> <FB01>]
+endbfrange
+endcmap`;
+
+  const contentStream = [
+    'BT',
+    '/F1 18 Tf',
+    '1 0 0 1 72 740 Tm [<00100011> (itam)] TJ',
+    '1 0 0 1 130 740 Tm (Rauniyar) Tj',
+    '/F2 10 Tf',
+    '1 0 0 1 72 720 Tm (Bengaluru, India | ) Tj',
+    '[(pritamrauniyar) -15 (.) 10 (np@gmail.com) -300 (|) -280 (+91) 10 (-) -15 (6201413) 12 (304)] TJ',
+    '1 0 0 1 72 705 Tm [(Pro) <0012> (le)] TJ',
+    '1 0 0 1 72 690 Tm (Education) Tj',
+    '1 0 0 1 72 675 Tm (Motilal Nehru National Institute of Technology \\(NIT\\) Allahabad) Tj',
+    '1 0 0 1 420 675 Tm (Aug 2018 \\226 May 2022) Tj',
+    '1 0 0 1 72 660 Tm (B.Tech, Electronics and Communication) Tj',
+    '1 0 0 1 72 645 Tm (Work Experience) Tj',
+    '1 0 0 1 72 630 Tm (Software Development Engineer, Elevate K-12 \\226 Remote) Tj',
+    '1 0 0 1 420 630 Tm (June 2023 \\226 Sept 2025) Tj',
+    'ET'
+  ].join('\n');
+
+  const compressedContent = zlib.deflateSync(Buffer.from(contentStream, 'latin1'));
+  const compressedCmap = zlib.deflateSync(Buffer.from(cmapStream, 'latin1'));
+
+  const pdfBuf = Buffer.concat([
+    Buffer.from('%PDF-1.4\n'),
+    Buffer.from('1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n'),
+    Buffer.from('2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n'),
+    Buffer.from('3 0 obj << /Type /Page /Resources << /Font << /F1 4 0 R /F2 6 0 R >> >> /Contents 5 0 R >> endobj\n'),
+    Buffer.from('4 0 obj << /Type /Font /ToUnicode 7 0 R >> endobj\n'),
+    Buffer.from('6 0 obj << /Type /Font >> endobj\n'),
+    Buffer.from(`7 0 obj << /Length ${compressedCmap.length} >>\nstream\n`),
+    compressedCmap,
+    Buffer.from('\nendstream\nendobj\n'),
+    Buffer.from(`5 0 obj << /Length ${compressedContent.length} >>\nstream\n`),
+    compressedContent,
+    Buffer.from('\nendstream\nendobj\n'),
+    Buffer.from('8 0 obj << /Type /Annot /Subtype /Link /A << /S /URI /URI (https://linkedin.com/in/pritamrauniyar) >> >> endobj\n'),
+    Buffer.from('9 0 obj << /Type /Annot /Subtype /Link /A << /S /URI /URI (https://pritamrauniyar.com.np) >> >> endobj\n'),
+    Buffer.from('%%EOF')
+  ]);
+
+  const mockPdf = {
+    name: 'Pritam_Resume.pdf',
+    type: 'application/pdf',
+    arrayBuffer: async () => pdfBuf.buffer.slice(pdfBuf.byteOffset, pdfBuf.byteOffset + pdfBuf.byteLength)
+  };
+
+  const extracted = await PdfExtractor.extractText(mockPdf);
+  assert.ok(extracted.includes('\n'), 'Extracted PDF text must preserve multi-line structure');
+  assert.ok(extracted.includes('pritamrauniyar.np@gmail.com'), 'Must not split email at TJ kerning');
+  assert.ok(extracted.includes('+91-6201413304'), 'Must not split phone number at TJ kerning');
+  assert.ok(extracted.includes('Technology (NIT) Allahabad'), 'Must keep escaped parens intact');
+  assert.ok(extracted.includes('https://linkedin.com/in/pritamrauniyar'), 'Must extract /URI hyperlink annotations');
+
+  const parsed = DeterministicResumeParser.parse(extracted);
+  assert.strictEqual(parsed.personal.fullName, 'Pritam Rauniyar');
+  assert.strictEqual(parsed.personal.email, 'pritamrauniyar.np@gmail.com');
+  assert.strictEqual(parsed.personal.phone, '+91-6201413304');
+  assert.strictEqual(parsed.personal.country, 'India');
+  assert.strictEqual(parsed.links.linkedin, 'https://linkedin.com/in/pritamrauniyar');
+  assert.strictEqual(parsed.links.portfolio, 'https://pritamrauniyar.com.np');
+  assert.strictEqual(parsed.education.school, 'Motilal Nehru National Institute of Technology (NIT) Allahabad');
+  assert.strictEqual(parsed.education.fieldOfStudy, 'Electronics and Communication');
+  assert.strictEqual(parsed.education.graduationYear, '2022');
+  assert.strictEqual(parsed.experience.items[0].company, 'Elevate K-12');
+  assert.strictEqual(parsed.experience.items[0].location, 'Remote');
+});

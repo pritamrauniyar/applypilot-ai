@@ -764,4 +764,143 @@ test('AtsAdapters: matchElement rejects search fields even if substring matches 
   assert.strictEqual(resValidTitle.value, profile.experience.items[0].title);
 });
 
+test('AtsAdapters: Stripe & Greenhouse Application Form Detection, Embeds, and Field Matching', (t) => {
+  const profile = {
+    personal: {
+      firstName: 'Alex',
+      lastName: 'Candidate',
+      fullName: 'Alex Candidate',
+      email: 'alex.candidate@example.com',
+      phone: '415-555-0123',
+      city: 'San Francisco',
+      state: 'CA',
+      location: 'San Francisco, CA'
+    },
+    presets: {
+      workAuthorization: 'Yes',
+      requireSponsorship: 'No',
+      veteranStatus: 'No',
+      disabilityStatus: 'No',
+      gender: 'Decline to self-identify',
+      race: 'Decline to self-identify'
+    },
+    experience: {
+      items: [{ company: 'Stripe', title: 'Software Engineer', isCurrent: true }]
+    }
+  };
+
+  // 1. Detection of Stripe career and job listing URLs
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://stripe.com/jobs/listing/software-engineer/12345'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://stripe.com/jobs/search?gh_jid=54321'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://boards.greenhouse.io/stripe/jobs/67890'), true);
+  assert.strictEqual(AtsAdapters.isJobApplicationPage('https://job-boards.greenhouse.io/stripe/jobs/67890'), true);
+
+  // 2. Greenhouse portal detection including embedded iframe DOM presence
+  assert.strictEqual(AtsAdapters.detectPortalType('https://boards.greenhouse.io/embed/job_app?for=stripe'), 'greenhouse');
+  assert.strictEqual(AtsAdapters.detectPortalType('https://job-boards.greenhouse.io/stripe'), 'greenhouse');
+
+  // 3. Greenhouse standard names matching
+  const ghFirstName = AtsAdapters.matchElement({
+    name: 'job_application[first_name]',
+    id: 'first_name',
+    combinedLabels: 'First Name *',
+    type: 'text'
+  }, profile);
+  assert.strictEqual(ghFirstName.matched, true);
+  assert.strictEqual(ghFirstName.value, 'Alex');
+
+  const ghLastName = AtsAdapters.matchElement({
+    name: 'job_application[last_name]',
+    id: 'last_name',
+    combinedLabels: 'Last Name *',
+    type: 'text'
+  }, profile);
+  assert.strictEqual(ghLastName.matched, true);
+  assert.strictEqual(ghLastName.value, 'Candidate');
+
+  const ghEmail = AtsAdapters.matchElement({
+    name: 'job_application[email]',
+    id: 'email',
+    combinedLabels: 'Email *',
+    type: 'text'
+  }, profile);
+  assert.strictEqual(ghEmail.matched, true);
+  assert.strictEqual(ghEmail.value, 'alex.candidate@example.com');
+
+  const ghPhone = AtsAdapters.matchElement({
+    name: 'job_application[phone]',
+    id: 'phone',
+    combinedLabels: 'Phone *',
+    type: 'text'
+  }, profile);
+  assert.strictEqual(ghPhone.matched, true);
+  assert.strictEqual(ghPhone.value, '415-555-0123');
+
+  const ghLocation = AtsAdapters.matchElement({
+    name: 'job_application[location]',
+    id: 'job_application_location',
+    combinedLabels: 'Location (City) *',
+    type: 'text'
+  }, profile);
+  assert.strictEqual(ghLocation.matched, true);
+  assert.strictEqual(ghLocation.value, 'San Francisco');
+
+  // 4. Greenhouse Demographics (Gender, Veteran, Disability, Race)
+  const ghGender = AtsAdapters.matchElement({
+    name: 'job_application[gender]',
+    id: 'gender',
+    combinedLabels: 'Gender Identity',
+    type: 'select'
+  }, profile);
+  assert.strictEqual(ghGender.matched, true);
+  assert.strictEqual(ghGender.value, 'Decline to self-identify');
+
+  const ghVeteran = AtsAdapters.matchElement({
+    name: 'job_application[veteran_status]',
+    id: 'veteran_status',
+    combinedLabels: 'Veteran Status',
+    type: 'select'
+  }, profile);
+  assert.strictEqual(ghVeteran.matched, true);
+  assert.strictEqual(ghVeteran.value, 'No');
+
+  const ghDisability = AtsAdapters.matchElement({
+    name: 'job_application[disability_status]',
+    id: 'disability_status',
+    combinedLabels: 'Disability Status',
+    type: 'select'
+  }, profile);
+  assert.strictEqual(ghDisability.matched, true);
+  assert.strictEqual(ghDisability.value, 'No');
+
+  const ghRace = AtsAdapters.matchElement({
+    name: 'job_application[race]',
+    id: 'race',
+    combinedLabels: 'Race / Ethnicity',
+    type: 'select'
+  }, profile);
+  assert.strictEqual(ghRace.matched, true);
+  assert.strictEqual(ghRace.value, 'Decline to self-identify');
+
+  // 5. Greenhouse Custom Questions in application-question container
+  const ghAuthQuestion = AtsAdapters.matchElement({
+    name: 'job_application[answers_attributes][0][boolean_value]',
+    id: 'custom_question_123',
+    combinedLabels: 'Are you legally authorized to work in the United States? *',
+    type: 'select'
+  }, profile);
+  assert.strictEqual(ghAuthQuestion.matched, true);
+  assert.strictEqual(ghAuthQuestion.value, 'Yes');
+
+  const ghSponQuestion = AtsAdapters.matchElement({
+    name: 'job_application[answers_attributes][1][boolean_value]',
+    id: 'custom_question_124',
+    combinedLabels: 'Will you now or in the future require visa sponsorship? *',
+    type: 'select'
+  }, profile);
+  assert.strictEqual(ghSponQuestion.matched, true);
+  assert.strictEqual(ghSponQuestion.value, 'No');
+});
+
+
 

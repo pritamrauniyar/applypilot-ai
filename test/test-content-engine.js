@@ -287,11 +287,27 @@ class MockDocument {
 }
 
 // Attach globals
+const windowListeners = {};
 global.window = {
   __applypilot_testing: true,
   location: {
     href: 'https://techcorp.wd1.myworkdayjobs.com/Careers/job/R10294-Engineer',
     hostname: 'techcorp.wd1.myworkdayjobs.com'
+  },
+  frames: [],
+  addEventListener: (type, fn) => {
+    windowListeners[type] = windowListeners[type] || [];
+    windowListeners[type].push(fn);
+  },
+  removeEventListener: (type, fn) => {
+    if (windowListeners[type]) {
+      const idx = windowListeners[type].indexOf(fn);
+      if (idx >= 0) windowListeners[type].splice(idx, 1);
+    }
+  },
+  dispatchEvent: (evt) => {
+    const list = windowListeners[evt.type] || [];
+    for (const fn of list) fn(evt);
   }
 };
 global.document = new MockDocument();
@@ -481,6 +497,10 @@ test('ContentEngine: setNativeValue for all form element types', () => {
   monthInput.type = 'month';
   ContentEngine.setNativeValue(monthInput, '2022-09-10');
   assert.strictEqual(monthInput.value, '2022-09');
+  ContentEngine.setNativeValue(monthInput, 'Sept 2025');
+  assert.strictEqual(monthInput.value, '2025-09');
+  ContentEngine.setNativeValue(monthInput, 'Nov 2025');
+  assert.strictEqual(monthInput.value, '2025-11');
 
   // 7. Number input
   const numInput = document.createElement('input');
@@ -1224,4 +1244,67 @@ test('ContentEngine: scanFormFields skips search and non-application fields', as
   assert.strictEqual(jobTitleInput.value, SAMPLE_PROFILE.experience.items[0].title);
   assert.strictEqual(companyInput.value, SAMPLE_PROFILE.experience.items[0].company);
 });
+
+test('ContentEngine: Cross-Frame Message Broker broadcasts and aggregates across child frames (e.g. Greenhouse on Stripe)', async (t) => {
+  const mockChildFrame = {
+    postMessage: (data, targetOrigin) => {
+      if (data && data.source === 'APPLYPILOT_PARENT_BROADCAST') {
+        // Simulate child iframe responding back with filled Greenhouse fields
+        window.dispatchEvent({
+          type: 'message',
+          data: {
+            source: 'APPLYPILOT_FRAME_RESPONSE',
+            requestId: data.requestId,
+            result: {
+              filledCount: 6,
+              details: [
+                { field: 'First Name', value: 'Alex', success: true },
+                { field: 'Last Name', value: 'Candidate', success: true },
+                { field: 'Email', value: 'alex@example.com', success: true },
+                { field: 'Phone', value: '555-0100', success: true },
+                { field: 'Location', value: 'San Francisco', success: true },
+                { field: 'Work Auth', value: 'Yes', success: true }
+              ]
+            }
+          }
+        });
+      }
+    }
+  };
+
+  // Attach mock child frame to window
+  window.frames = [mockChildFrame];
+
+  const results = await ContentEngine.broadcastToChildFrames('AUTOFILL', {}, 200);
+  assert.strictEqual(results.length, 1);
+  assert.strictEqual(results[0].filledCount, 6);
+  assert.strictEqual(results[0].details.length, 6);
+  assert.strictEqual(results[0].details[0].field, 'First Name');
+
+  // Clean up
+  window.frames = [];
+});
+
+test('ContentEngine: onMessageListener yields to top frame inside child iframes', () => {
+  const prevTop = global.window.top;
+  const prevSelf = global.window.self;
+  const mockTop = { name: 'top' };
+  const mockSelf = { name: 'child-iframe' };
+  global.window.top = mockTop;
+  global.window.self = mockSelf;
+  let responded = false;
+  try {
+    const keepChannelOpen = ContentEngine.onMessageListener(
+      { action: 'AUTOFILL' },
+      {},
+      () => { responded = true; }
+    );
+    assert.strictEqual(keepChannelOpen, false);
+    assert.strictEqual(responded, false);
+  } finally {
+    global.window.top = prevTop;
+    global.window.self = prevSelf;
+  }
+});
+
 

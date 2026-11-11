@@ -3,61 +3,48 @@
 document.addEventListener('DOMContentLoaded', async () => {
   let profile = null;
 
+  const byId = (id) => document.getElementById(id);
+  const setText = (id, text) => {
+    const el = byId(id);
+    if (el) el.textContent = text;
+  };
+
   async function loadData() {
     profile = await StorageService.getProfile();
     renderQuickCopyDrawer(profile);
-    checkApiKeyBanner(profile);
     await checkActiveTab();
   }
-
-  function checkApiKeyBanner(p) {
-    const banner = document.getElementById('sp-api-banner');
-    const input = document.getElementById('sp-api-key-input');
-    const hasKey = Boolean(p.settings?.geminiApiKey);
-    banner.style.display = hasKey ? 'none' : 'block';
-    if (hasKey) input.value = p.settings.geminiApiKey;
-  }
-
-  // Save key from side panel
-  document.getElementById('sp-btn-save-key').addEventListener('click', async () => {
-    const key = document.getElementById('sp-api-key-input').value.trim();
-    if (!key) {
-      showSpStatus("Please paste your Gemini API key.", "error");
-      return;
-    }
-    await StorageService.saveApiKey(key);
-    document.getElementById('sp-api-banner').style.display = 'none';
-    showSpStatus("Gemini API key saved.", "success");
-    await loadData();
-  });
 
   // 1. Inspect Active Tab
   async function checkActiveTab() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
 
-    chrome.tabs.sendMessage(tab.id, { action: "SCAN_FIELDS" }, (res) => {
-      const badge = document.getElementById('sp-status-badge');
-      if (chrome.runtime.lastError || !res) {
-        badge.textContent = "Open a job portal tab";
-        document.getElementById('sp-stat-total').textContent = "0";
-        document.getElementById('sp-stat-matched').textContent = "0";
-        document.getElementById('sp-stat-unmatched').textContent = "0";
-        return;
-      }
+    try {
+      chrome.tabs.sendMessage(tab.id, { action: "SCAN_FIELDS" }, (res) => {
+        if (chrome.runtime?.lastError || !res) {
+          setText('sp-status-badge', "Open a job portal tab");
+          setText('sp-stat-total', "0");
+          setText('sp-stat-matched', "0");
+          setText('sp-stat-unmatched', "0");
+          return;
+        }
 
-      badge.textContent = `${tab.title?.slice(0, 25) || "Active Tab"}...`;
-      document.getElementById('sp-stat-total').textContent = res.total || 0;
-      document.getElementById('sp-stat-matched').textContent = res.matchedCount || 0;
-      document.getElementById('sp-stat-unmatched').textContent = res.unmatchedCount || 0;
-    });
+        setText('sp-status-badge', `${tab.title?.slice(0, 25) || "Active Tab"}...`);
+        setText('sp-stat-total', res.total || 0);
+        setText('sp-stat-matched', res.matchedCount || 0);
+        setText('sp-stat-unmatched', res.unmatchedCount || 0);
+      });
+    } catch (e) {
+      setText('sp-status-badge', "Open a job portal tab");
+    }
   }
 
   // Rescan button
-  document.getElementById('sp-btn-refresh').addEventListener('click', checkActiveTab);
+  byId('sp-btn-refresh')?.addEventListener('click', checkActiveTab);
 
   // Export audit logs button
-  document.getElementById('sp-btn-export-logs')?.addEventListener('click', async () => {
+  byId('sp-btn-export-logs')?.addEventListener('click', async () => {
     const jsonStr = await AuditLogger.exportJSON();
     const dateStr = new Date().toISOString().split('T')[0];
     const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -74,11 +61,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Autofill button
-  document.getElementById('sp-autofill-btn').addEventListener('click', async () => {
+  byId('sp-autofill-btn')?.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
 
     chrome.tabs.sendMessage(tab.id, { action: "AUTOFILL" }, (res) => {
+      if (chrome.runtime?.lastError) {
+        showSpStatus("Open a job application page and reload it to autofill.", "error");
+        return;
+      }
       if (res && res.filledCount !== undefined) {
         checkActiveTab();
       }
@@ -86,7 +77,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Capture & Learn Page Fields button
-  const captureBtn = document.getElementById('sp-capture-btn');
+  const captureBtn = byId('sp-capture-btn');
   if (captureBtn) {
     captureBtn.addEventListener('click', async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -94,6 +85,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       captureBtn.textContent = "Saving...";
       chrome.tabs.sendMessage(tab.id, { action: "CAPTURE_PAGE_FIELDS" }, async (res) => {
         captureBtn.textContent = "📥 Learn Page";
+        if (chrome.runtime?.lastError) {
+          showSpStatus("Could not inspect this tab. Reload the application page.", "error");
+          return;
+        }
         if (res && res.capturedCount !== undefined) {
           await loadData();
           checkActiveTab();
@@ -102,18 +97,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // AI Unmatched
-  document.getElementById('sp-scan-ai-btn').addEventListener('click', async () => {
+  // Review Unmatched button
+  byId('sp-scan-ai-btn')?.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
-    chrome.tabs.sendMessage(tab.id, { action: "SUGGEST_UNMATCHED" });
+    chrome.tabs.sendMessage(tab.id, { action: "SUGGEST_UNMATCHED" }, () => {
+      void chrome.runtime?.lastError;
+    });
   });
 
   // 2. Quick Copy Drawer
   function renderQuickCopyDrawer(p) {
-    const list = document.getElementById('sp-drawer-list');
+    const list = byId('sp-drawer-list');
+    if (!list) return;
     list.innerHTML = '';
 
+    const currentRoleValue = [p.experience?.currentTitle, p.experience?.currentCompany].filter(Boolean).join(" at ");
     const items = [
       { title: "Full Name", value: p.personal?.fullName },
       { title: "Email", value: p.personal?.email },
@@ -122,7 +121,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       { title: "LinkedIn", value: p.links?.linkedin },
       { title: "GitHub", value: p.links?.github },
       { title: "Portfolio", value: p.links?.portfolio },
-      { title: "Current Title", value: `${p.experience?.currentTitle} at ${p.experience?.currentCompany}` },
+      { title: "Current Title", value: currentRoleValue },
       { title: "Tech Stack", value: p.experience?.skills },
       { title: "Notice Period", value: p.presets?.noticePeriod },
       { title: "Work Auth", value: p.presets?.workAuthorization },
@@ -201,44 +200,58 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 3. AI Essay Scratchpad
-  document.getElementById('sp-btn-generate-essay').addEventListener('click', async () => {
-    const prompt = document.getElementById('sp-ai-prompt').value.trim();
+  // 3. Offline Smart Answer Builder
+  byId('sp-btn-generate-essay')?.addEventListener('click', async () => {
+    const promptInput = byId('sp-ai-prompt');
+    const prompt = (promptInput?.value || "").trim();
     if (!prompt) {
       showSpStatus("Please enter a question or prompt first.", "error");
       return;
     }
 
-    const btn = document.getElementById('sp-btn-generate-essay');
-    btn.textContent = "⏳ Drafting...";
-    btn.disabled = true;
+    const btn = byId('sp-btn-generate-essay');
+    if (btn) {
+      btn.textContent = "⏳ Drafting...";
+      btn.disabled = true;
+    }
 
     chrome.runtime.sendMessage({
       action: "GENERATE_AI_ANSWER",
       question: prompt
     }, (res) => {
-      btn.textContent = "✨ Generate Answer";
-      btn.disabled = false;
+      if (btn) {
+        btn.textContent = "⚡ Draft Answer";
+        btn.disabled = false;
+      }
+
+      if (chrome.runtime?.lastError) {
+        showSpStatus(chrome.runtime.lastError.message || "Could not reach background engine.", "error");
+        return;
+      }
 
       if (res && res.answer) {
-        document.getElementById('sp-ai-result-box').style.display = 'block';
-        document.getElementById('sp-ai-result').value = res.answer;
+        const resultBox = byId('sp-ai-result-box');
+        const resultArea = byId('sp-ai-result');
+        if (resultBox) resultBox.style.display = 'block';
+        if (resultArea) resultArea.value = res.answer;
       } else {
-        showSpStatus(res?.error || "Could not generate a response. Check your Gemini API key.", "error");
+        showSpStatus(res?.error || "Could not draft a response from your local profile. Add details in Profile.", "error");
       }
     });
   });
 
   // Copy drafted essay
-  document.getElementById('sp-btn-copy-essay').addEventListener('click', async () => {
-    const text = document.getElementById('sp-ai-result').value;
+  byId('sp-btn-copy-essay')?.addEventListener('click', async () => {
+    const text = byId('sp-ai-result')?.value || "";
     if (!text) return;
     await navigator.clipboard.writeText(text);
-    const btn = document.getElementById('sp-btn-copy-essay');
-    btn.textContent = "✓ Copied to Clipboard!";
-    setTimeout(() => {
-      btn.textContent = "📋 Copy";
-    }, 1500);
+    const btn = byId('sp-btn-copy-essay');
+    if (btn) {
+      btn.textContent = "✓ Copied to Clipboard!";
+      setTimeout(() => {
+        btn.textContent = "📋 Copy";
+      }, 1500);
+    }
   });
 
   // Inline status banner - see the note in popup.js about avoiding alert().
